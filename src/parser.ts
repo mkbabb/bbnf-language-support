@@ -12,7 +12,6 @@ export function preprocess(text: string, options: object): string {
 
 export function parse(text: string, parsers: object, options: object) {
     let ast = generateASTFromEBNF(text);
-    console.log(ast);
 
     ast = topologicalSort(ast);
 

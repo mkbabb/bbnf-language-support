@@ -7,6 +7,7 @@
     "module": "./src/index.ts",
     "scripts": {
         "test": "vitest",
+        "test:bench": "vitest bench",
         "build": "vite build"
     },
     "author": "",

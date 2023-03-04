@@ -23,12 +23,21 @@ export async function activate(context: vscode.ExtensionContext) {
             provideDocumentFormattingEdits(
                 document: vscode.TextDocument
             ): vscode.TextEdit[] {
-                if (document.getText().length === 0) {
+                const text = document.getText();
+                if (text.length === 0) {
                     return [];
                 }
 
+                let nonterminals;
+                let ast;
                 try {
-                    let formatted = formatEBNF(document.getText());
+                    [nonterminals, ast] = generateParserFromEBNF(text);
+                } catch (e) {
+                    return;
+                }
+
+                try {
+                    let formatted = formatEBNF(text);
                     diagnosticCollection.set(document.uri, []);
 
                     // find all strings like "$$$\w$$$" and their positions:

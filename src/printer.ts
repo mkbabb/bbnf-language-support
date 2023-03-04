@@ -1,9 +1,13 @@
 import { builders as b } from "prettier/doc";
 import { Expression, ProductionRule } from "@mkbabb/parse-that/ebnf";
-import prettier, { AST, AstPath, Doc, Options, Printer, util } from "prettier";
+import { AST, AstPath, Doc, Options } from "prettier";
 
 function printScope(node: Expression, scope: AST): Doc {
     function print(node: Expression): Doc {
+        if (!node) {
+            return "";
+        }
+
         const innerPrint = () => {
             switch (node.type) {
                 case "literal":

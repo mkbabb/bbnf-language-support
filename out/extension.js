@@ -1703,6 +1703,9 @@ class Parser {
     const newState = this.parser(new ParserState(val));
     this.state = mergeErrorState(newState);
     this.state.isError = newState.isError;
+    if (this.state.isError) {
+      console.log(this.state.toString());
+    }
     return newState.value;
   }
   getCijKey(state) {
@@ -2192,6 +2195,16 @@ const mapFactor = ([term, op]) => {
     value: term
   };
 };
+function mapStatePosition(parser) {
+  return parser.mapState((state) => {
+    if (state.value) {
+      state.value.column = state.getColumnNumber();
+      state.value.line = state.getLineNumber();
+      state.value.offset = state.offset;
+    }
+    return state;
+  });
+}
 const defaultOptions$1 = {
   debug: false,
   comments: true
@@ -2221,7 +2234,7 @@ class EBNFGrammar {
     );
   }
   epsilon() {
-    return any(string("epsilon"), string("ε")).trim().map((value) => {
+    return any(string("epsilon"), string("ε")).trim().map(() => {
       return {
         type: "epsilon",
         value: void 0
@@ -2271,7 +2284,10 @@ class EBNFGrammar {
     return this.rhs().trim().wrap(string("["), string("]")).map((value) => {
       return {
         type: "optional",
-        value
+        value: {
+          type: "group",
+          value
+        }
       };
     });
   }
@@ -2279,7 +2295,10 @@ class EBNFGrammar {
     return this.rhs().trim().wrap(string("{"), string("}")).map((value) => {
       return {
         type: "many",
-        value
+        value: {
+          type: "group",
+          value
+        }
       };
     });
   }
@@ -2287,14 +2306,16 @@ class EBNFGrammar {
     return this.identifier();
   }
   term() {
-    return any(
-      this.epsilon(),
-      this.group(),
-      this.optionalGroup(),
-      this.manyGroup(),
-      this.nonterminal(),
-      this.literal(),
-      this.regex()
+    return mapStatePosition(
+      any(
+        this.epsilon(),
+        this.group(),
+        this.optionalGroup(),
+        this.manyGroup(),
+        this.nonterminal(),
+        this.literal(),
+        this.regex()
+      )
     );
   }
   factor() {
@@ -4211,6 +4232,9 @@ var doc = {
 })(doc);
 function printScope(node, scope) {
   function print(node2) {
+    if (!node2) {
+      return "";
+    }
     const innerPrint = () => {
       switch (node2.type) {
         case "literal":
@@ -4371,11 +4395,19 @@ async function activate(context) {
     BBNFFileSelector,
     {
       provideDocumentFormattingEdits(document) {
-        if (document.getText().length === 0) {
+        const text = document.getText();
+        if (text.length === 0) {
           return [];
         }
+        let nonterminals;
+        let ast;
         try {
-          let formatted = formatEBNF(document.getText());
+          [nonterminals, ast] = generateParserFromEBNF(text);
+        } catch (e) {
+          return;
+        }
+        try {
+          let formatted = formatEBNF(text);
           diagnosticCollection.set(document.uri, []);
           const undefinedVariableRegex = /\$\$\$(\w+)\$\$\$/g;
           for (const match of formatted.matchAll(undefinedVariableRegex)) {

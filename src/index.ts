@@ -1,7 +1,7 @@
 import { locStart, parse, preprocess, locEnd } from "./parser";
 import { EBNFPrint } from "./printer";
 
-import prettier, { Plugin } from "prettier";
+import prettier, { Plugin, doc } from "prettier";
 
 export const languages = [
     {
@@ -51,6 +51,7 @@ export const formatEBNF = (grammar: string, options?) => {
     return prettier.format(grammar, {
         parser: "ebnf",
         plugins: [EBNFPlugin],
+
         ...defaultOptions,
         ...(options ?? {}),
     });

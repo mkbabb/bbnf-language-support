@@ -26,8 +26,12 @@ export default defineConfig(({ mode }) => {
                     },
                 },
             },
-
-            plugins: [commonjs()],
+            plugins: [
+                commonjs(),
+                nodeResolve({
+                    preferBuiltins: true,
+                }),
+            ],
         };
     }
     return {

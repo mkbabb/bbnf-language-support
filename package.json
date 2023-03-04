@@ -31,12 +31,8 @@
                 "title": "Format BBNF"
             },
             {
-                "command": "extension.sort",
-                "title": "Sort BBNF"
-            },
-            {
-                "command": "extension.vibes",
-                "title": "vibes"
+                "command": "extension.testGrammar",
+                "title": "Test BBNF Grammar"
             }
         ],
         "menus": {

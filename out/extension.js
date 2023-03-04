@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-const vscode = require("vscode");
 const chalk = require("chalk");
+const vscode = require("vscode");
 const prettier = require("prettier");
 function _interopNamespaceDefault(e) {
   const n = Object.create(null, { [Symbol.toStringTag]: { value: "Module" } });
@@ -1494,12 +1494,12 @@ function parserPrint(parser) {
   if (PARSER_STRINGS.has(parser.id)) {
     return PARSER_STRINGS.get(parser.id);
   }
-  const print2 = (innerParser, id) => {
+  const print = (innerParser, id) => {
     if (PARSER_STRINGS.has(innerParser.id)) {
       return PARSER_STRINGS.get(innerParser.id);
     }
     const { name, args, parser: innerInnerParser } = innerParser.context;
-    const parserString = innerInnerParser != null ? print2(innerInnerParser, id) : chalk.red.bold("unknown");
+    const parserString = innerInnerParser != null ? print(innerInnerParser, id) : chalk.red.bold("unknown");
     let s2 = (() => {
       switch (name) {
         case "string":
@@ -1512,10 +1512,10 @@ function parserPrint(parser) {
         case "trim": {
           const [left, right] = args;
           return group([
-            print2(left, id),
+            print(left, id),
             docExports$1.builders.indent([docExports$1.builders.softline, parserString]),
             docExports$1.builders.softline,
-            print2(right, id)
+            print(right, id)
           ]);
         }
         case "trimWhitespace":
@@ -1526,10 +1526,10 @@ function parserPrint(parser) {
           return group([parserString, opStyle("?")]);
         case "next":
           const [next] = args;
-          return group([parserString, opStyle(" >> "), print2(next, id)]);
+          return group([parserString, opStyle(" >> "), print(next, id)]);
         case "skip":
           const [skip] = args;
-          return group([parserString, opStyle(" << "), print2(skip, id)]);
+          return group([parserString, opStyle(" << "), print(skip, id)]);
         case "map":
           return parserString;
         case "all":
@@ -1541,7 +1541,7 @@ function parserPrint(parser) {
               docExports$1.builders.softline,
               docExports$1.builders.join(
                 [delim, docExports$1.builders.softline],
-                args.map((x) => print2(x, id))
+                args.map((x) => print(x, id))
               )
             ]),
             docExports$1.builders.softline,
@@ -1555,7 +1555,7 @@ function parserPrint(parser) {
             [
               docExports$1.builders.join(
                 [docExports$1.builders.softline, docExports$1.builders.ifBreak(delim, " " + delim)],
-                args.map((x) => print2(x, id))
+                args.map((x) => print(x, id))
               )
             ]
           ]);
@@ -1568,13 +1568,13 @@ function parserPrint(parser) {
         case "sepBy":
           return group([
             parserString,
-            docExports$1.builders.indent([" sepBy ", print2(args[0], id)])
+            docExports$1.builders.indent([" sepBy ", print(args[0], id)])
           ]);
         case "lazy": {
           const [lazy2] = args;
           const p = getLazyParser(lazy2);
           if (!id) {
-            const s3 = print2(p, p.id);
+            const s3 = print(p, p.id);
             PARSER_STRINGS.set(p.id, s3);
             return s3;
           } else {
@@ -1591,7 +1591,7 @@ function parserPrint(parser) {
     }
     return s2;
   };
-  const doc2 = print2(parser);
+  const doc2 = print(parser);
   const s = prettierPrint(doc2);
   PARSER_STRINGS.set(parser.id, s);
   return s;
@@ -2444,6 +2444,240 @@ function topologicalSort(ast) {
   }
   return newAST;
 }
+const findCommonPrefix = (e1, e2) => {
+  if (!(e1 == null ? void 0 : e1.type) || !(e2 == null ? void 0 : e2.type) || e1.type !== e2.type) {
+    return void 0;
+  }
+  switch (e1.type) {
+    case "literal":
+    case "nonterminal": {
+      if (e1.value !== e2.value) {
+        return void 0;
+      } else {
+        return [e1, { type: "epsilon" }, { type: "epsilon" }];
+      }
+    }
+    case "group":
+    case "optional":
+    case "optionalWhitespace":
+    case "many":
+    case "many1": {
+      const common = findCommonPrefix(e1.value, e2.value);
+      if (!common) {
+        return void 0;
+      } else {
+        return [
+          {
+            type: e1.type,
+            value: common[0]
+          },
+          {
+            type: e1.type,
+            value: common[1]
+          },
+          {
+            type: e1.type,
+            value: common[2]
+          }
+        ];
+      }
+    }
+    case "concatenation": {
+      const commons = e1.value.map(
+        (_, i) => findCommonPrefix(e1.value[i], e2.value[i])
+      );
+      if (commons.some((x) => x === void 0)) {
+        return void 0;
+      }
+      const prefixes = commons.map((x) => x[0]);
+      const e1s = commons.map((x) => x[1]);
+      const e2s = commons.map((x) => x[2]);
+      const startIx = prefixes.lastIndexOf(null);
+      if (startIx === prefixes.length - 1) {
+        return void 0;
+      }
+      const prefix = prefixes.slice(startIx + 1);
+      return [
+        {
+          type: "concatenation",
+          value: prefix
+        },
+        {
+          type: "concatenation",
+          value: e1s
+        },
+        {
+          type: "concatenation",
+          value: e2s
+        }
+      ];
+    }
+    case "alternation":
+      for (const e of e1.value) {
+        const common = findCommonPrefix(e, e2);
+        if (common) {
+          return common;
+        }
+      }
+      for (const e of e2.value) {
+        const common = findCommonPrefix(e1, e);
+        if (common) {
+          return common;
+        }
+      }
+      return void 0;
+  }
+  return void 0;
+};
+const comparePrefix = (prefix, expr) => {
+  if (prefix.type !== expr.type) {
+    return false;
+  }
+  switch (prefix.type) {
+    case "literal":
+    case "nonterminal":
+      return prefix.value === expr.value;
+    case "group":
+    case "optional":
+    case "many":
+    case "many1":
+      return comparePrefix(prefix.value, expr.value);
+    case "minus":
+    case "skip":
+    case "next":
+      return comparePrefix(prefix.value[0], expr.value[0]) && comparePrefix(prefix.value[1], expr.value[1]);
+    case "concatenation":
+      return prefix.value.every((e, i) => comparePrefix(e, expr.value[i]));
+    case "alternation":
+      return prefix.value.some((e, i) => comparePrefix(e, expr.value[i]));
+    case "epsilon":
+      return true;
+  }
+};
+function rewriteTreeLeftRecursion(name, expr) {
+  const prefixMap = /* @__PURE__ */ new Map();
+  let commonPrefix = null;
+  for (let i = 0; i < expr.value.length - 1; i++) {
+    const e1 = expr.value[i];
+    const e2 = expr.value[i + 1];
+    const common = findCommonPrefix(e1, e2);
+    if (common) {
+      const [prefix, te1, te2] = common;
+      if (commonPrefix !== null && comparePrefix(prefix, commonPrefix)) {
+        prefixMap.get(commonPrefix).push(te2);
+      } else {
+        prefixMap.set(prefix, [te1, te2]);
+        commonPrefix = prefix;
+      }
+      if (i === expr.value.length - 2) {
+        expr.value.shift();
+      }
+      expr.value.shift();
+      i -= 1;
+    }
+  }
+  for (const [prefix, expressions] of prefixMap) {
+    const alternation = {
+      type: "alternation",
+      value: expressions
+    };
+    const newExpr = {
+      type: "concatenation",
+      value: [
+        {
+          type: "group",
+          value: alternation
+        },
+        {
+          type: "group",
+          value: prefix
+        }
+      ]
+    };
+    expr.value.push(newExpr);
+  }
+}
+const removeDirectLeftRecursionProduction = (name, expr, tailName) => {
+  const head = [];
+  const tail = [];
+  const APrime = {
+    type: "nonterminal",
+    value: tailName
+  };
+  for (let i = 0; i < expr.value.length; i++) {
+    const e = expr.value[i];
+    if (e.type === "concatenation" && e.value[0].value === name) {
+      tail.push({
+        type: "concatenation",
+        value: [...e.value.slice(1), APrime]
+      });
+    } else {
+      head.push({
+        type: "concatenation",
+        value: [e, APrime]
+      });
+    }
+  }
+  if (tail.length === 0) {
+    return [void 0, void 0];
+  }
+  tail.push({
+    type: "epsilon"
+  });
+  return [
+    {
+      type: "alternation",
+      value: head
+    },
+    {
+      type: "alternation",
+      value: tail
+    }
+  ];
+};
+function removeDirectLeftRecursion(ast) {
+  const newNodes = /* @__PURE__ */ new Map();
+  let uniqueIndex = 0;
+  for (const [name, productionRule] of ast) {
+    const { expression } = productionRule;
+    if (expression.type === "alternation") {
+      const tailName = `${name}_${uniqueIndex++}`;
+      const [head, tail] = removeDirectLeftRecursionProduction(
+        name,
+        expression,
+        tailName
+      );
+      if (head) {
+        newNodes.set(tailName, {
+          name: tailName,
+          expression: tail
+        });
+        newNodes.set(name, {
+          name,
+          expression: head,
+          comment: productionRule.comment
+        });
+      }
+    }
+  }
+  if (newNodes.size === 0) {
+    return ast;
+  }
+  for (const [name, productionRule] of newNodes) {
+    ast.set(name, productionRule);
+  }
+  for (const [name, productionRule] of ast) {
+    const { expression } = productionRule;
+    if (expression.type === "alternation") {
+      rewriteTreeLeftRecursion(name, expression);
+    }
+  }
+}
+function removeAllLeftRecursion(ast) {
+  const newAST = topologicalSort(ast);
+  removeDirectLeftRecursion(newAST);
+  return newAST;
+}
 function generateASTFromEBNF(input) {
   const parser = new EBNFGrammar().grammar().eof();
   const parsed = parser.parse(input);
@@ -2455,6 +2689,70 @@ function generateASTFromEBNF(input) {
   }, /* @__PURE__ */ new Map());
   return [parser, ast];
 }
+function generateParserFromAST(ast) {
+  function generateParser(name, expr) {
+    var _a, _b;
+    switch (expr.type) {
+      case "literal":
+        return string(expr.value);
+      case "nonterminal":
+        const l = Parser.lazy(() => {
+          return nonterminals[expr.value];
+        });
+        l.context.name = expr.value;
+        return l;
+      case "epsilon":
+        return eof().opt();
+      case "group":
+        return generateParser(name, expr.value);
+      case "regex":
+        return regex(expr.value);
+      case "optionalWhitespace":
+        return generateParser(name, expr.value).trim();
+      case "optional":
+        return generateParser(name, expr.value).opt();
+      case "many":
+        return generateParser(name, expr.value).many();
+      case "many1":
+        return generateParser(name, expr.value).many(1);
+      case "skip":
+        return generateParser(name, expr.value[0]).skip(
+          generateParser(name, expr.value[1])
+        );
+      case "next":
+        return generateParser(name, expr.value[0]).next(
+          generateParser(name, expr.value[1])
+        );
+      case "minus":
+        return generateParser(name, expr.value[0]).not(
+          generateParser(name, expr.value[1])
+        );
+      case "concatenation": {
+        const parsers2 = expr.value.map((x) => generateParser(name, x));
+        if (((_b = (_a = parsers2.at(-1)) == null ? void 0 : _a.context) == null ? void 0 : _b.name) === "eof") {
+          parsers2.pop();
+        }
+        return all(...parsers2);
+      }
+      case "alternation": {
+        return any(...expr.value.map((x) => generateParser(name, x)));
+      }
+    }
+  }
+  const nonterminals = {};
+  for (const [name, productionRule] of ast.entries()) {
+    nonterminals[name] = generateParser(name, productionRule.expression);
+  }
+  return nonterminals;
+}
+function generateParserFromEBNF(input, optimizeGraph = false) {
+  let [parser, ast] = generateASTFromEBNF(input);
+  if (optimizeGraph) {
+    ast = removeAllLeftRecursion(ast);
+  }
+  const nonterminals = generateParserFromAST(ast);
+  return [nonterminals, ast];
+}
 function locStart(node) {
   return 0;
 }
@@ -2465,7 +2763,7 @@ function preprocess(text, options) {
   return text;
 }
 function parse(text, parsers2, options) {
-  const [parser, ast] = generateASTFromEBNF(text);
+  let [parser, ast] = generateASTFromEBNF(text);
   if (parser.state.isError) {
     throw new Error(`Error parsing EBNF: ${parser.state}`, {
       cause: parser
@@ -3911,84 +4209,104 @@ var doc = {
     return require_doc_js_umd();
   });
 })(doc);
-function print(node) {
-  const innerPrint = () => {
-    switch (node.type) {
-      case "literal":
-        if (node.value === '"') {
-          return docExports.builders.group(["'", node.value, "'"]);
+function printScope(node, scope) {
+  function print(node2) {
+    const innerPrint = () => {
+      switch (node2.type) {
+        case "literal":
+          if (node2.value === '"') {
+            return docExports.builders.group(["'", node2.value, "'"]);
+          }
+          const s2 = node2.value;
+          return docExports.builders.group(['"', s2, '"']);
+        case "nonterminal":
+          if (scope.has(node2.value)) {
+            return node2.value;
+          }
+          return docExports.builders.group(["$$$", node2.value, "$$$"]);
+        case "epsilon":
+          return "ε";
+        case "group":
+          return docExports.builders.group([
+            "( ",
+            docExports.builders.indent(print(node2.value)),
+            docExports.builders.softline,
+            " )"
+          ]);
+        case "regex":
+          return docExports.builders.group(["/", node2.value.source, "/", node2.value.flags]);
+        case "optional":
+          return docExports.builders.group([print(node2.value), "?"]);
+        case "optionalWhitespace":
+          return docExports.builders.group([print(node2.value), "?w"]);
+        case "minus":
+          return docExports.builders.group([print(node2.value[0]), " - ", print(node2.value[1])]);
+        case "many":
+          return docExports.builders.group([print(node2.value), "*"]);
+        case "many1":
+          return docExports.builders.group([print(node2.value), "+"]);
+        case "skip":
+          return docExports.builders.group([
+            print(node2.value[0]),
+            " << ",
+            print(node2.value[1])
+          ]);
+        case "next":
+          return docExports.builders.group([
+            print(node2.value[0]),
+            " >> ",
+            print(node2.value[1])
+          ]);
+        case "concatenation": {
+          const delim = " , ";
+          return docExports.builders.group([
+            docExports.builders.indent([
+              docExports.builders.softline,
+              docExports.builders.join(
+                [docExports.builders.conditionalGroup([docExports.builders.softline]), delim],
+                node2.value.map((x) => print(x))
+              )
+            ])
+          ]);
         }
-        const s2 = node.value;
-        return docExports.builders.group(['"', s2, '"']);
-      case "nonterminal":
-        return node.value;
-      case "epsilon":
-        return "ε";
-      case "group":
-        return docExports.builders.group(["( ", docExports.builders.indent(print(node.value)), docExports.builders.softline, " )"]);
-      case "regex":
-        return docExports.builders.group(["/", node.value.source, "/", node.value.flags]);
-      case "optional":
-        return docExports.builders.group([print(node.value), "?"]);
-      case "optionalWhitespace":
-        return docExports.builders.group([print(node.value), "?w"]);
-      case "minus":
-        return docExports.builders.group([print(node.value[0]), " - ", print(node.value[1])]);
-      case "many":
-        return docExports.builders.group([print(node.value), "*"]);
-      case "many1":
-        return docExports.builders.group([print(node.value), "+"]);
-      case "skip":
-        return docExports.builders.group([print(node.value[0]), " << ", print(node.value[1])]);
-      case "next":
-        return docExports.builders.group([print(node.value[0]), " >> ", print(node.value[1])]);
-      case "concatenation": {
-        const delim = " , ";
-        return docExports.builders.group([
-          docExports.builders.indent([
-            docExports.builders.softline,
-            docExports.builders.join(
-              [docExports.builders.conditionalGroup([docExports.builders.softline]), delim],
-              node.value.map((x) => print(x))
-            )
-          ])
-        ]);
+        case "alternation": {
+          const delim = " | ";
+          return docExports.builders.group([
+            docExports.builders.indent([
+              docExports.builders.softline,
+              docExports.builders.join(
+                [docExports.builders.conditionalGroup([docExports.builders.softline]), delim],
+                node2.value.map((x) => print(x))
+              )
+            ])
+          ]);
+        }
       }
-      case "alternation": {
-        const delim = " | ";
-        return docExports.builders.group([
-          docExports.builders.indent([
-            docExports.builders.softline,
-            docExports.builders.join(
-              [docExports.builders.conditionalGroup([docExports.builders.softline]), delim],
-              node.value.map((x) => print(x))
-            )
-          ])
-        ]);
-      }
+    };
+    const s = innerPrint();
+    if (node2.comment) {
+      const left = node2.comment.left.length ? node2.comment.left + " " : "";
+      const right = node2.comment.right.length ? " " + node2.comment.right : "";
+      return docExports.builders.group([left, s, right]);
     }
-  };
-  const s = innerPrint();
-  if (node.comment) {
-    const left = node.comment.left.length ? node.comment.left + " " : "";
-    const right = node.comment.right.length ? " " + node.comment.right : "";
-    return docExports.builders.group([left, s, right]);
+    return s;
   }
-  return s;
+  return print(node);
 }
 function EBNFPrint(path, options) {
-  const node = path.getValue();
-  if (!node) {
+  const ast = path.getValue();
+  if (!ast) {
     return "";
   }
   options.printWidth = 66;
   const d = docExports.builders.join(
     docExports.builders.hardline,
-    [...node.entries()].map(([name, rule]) => {
+    [...ast.entries()].map(([name, rule]) => {
+      var _a, _b;
       const { expression, comment } = rule;
-      const line = [name, " = ", print(expression), " ;"];
-      const above = comment.above.length ? [docExports.builders.join(docExports.builders.hardline, comment.above), docExports.builders.hardline] : [];
-      const below = comment.below.length ? [docExports.builders.join(docExports.builders.hardline, comment.below)] : [];
+      const line = [name, " = ", printScope(expression, ast), " ;"];
+      const above = ((_a = comment == null ? void 0 : comment.above) == null ? void 0 : _a.length) ? [docExports.builders.join(docExports.builders.hardline, comment.above), docExports.builders.hardline] : [];
+      const below = ((_b = comment == null ? void 0 : comment.below) == null ? void 0 : _b.length) ? [docExports.builders.join(docExports.builders.hardline, comment.below)] : [];
       const commentedLine = docExports.builders.group([above, line, " ", docExports.builders.lineSuffix(below)]);
       if (expression.type === "concatenation" || expression.type === "alternation") {
         return docExports.builders.group([commentedLine, docExports.builders.hardline]);
@@ -4045,14 +4363,9 @@ const formatEBNF = (grammar, options) => {
     ...options ?? {}
   });
 };
-vscode__namespace.window.showInformationMessage("Vibes!");
 async function activate(context) {
   const diagnosticCollection = vscode__namespace.languages.createDiagnosticCollection("bbnf");
   diagnosticCollection.clear();
-  const vibes = vscode__namespace.commands.registerCommand("extension.vibes", () => {
-    vscode__namespace.window.showInformationMessage("Vibes!");
-  });
-  context.subscriptions.push(vibes);
   const BBNFFileSelector = { language: "bbnf", scheme: "file" };
   const formatBBNF = vscode__namespace.languages.registerDocumentFormattingEditProvider(
     BBNFFileSelector,
@@ -4062,8 +4375,25 @@ async function activate(context) {
           return [];
         }
         try {
-          const formatted = formatEBNF(document.getText());
+          let formatted = formatEBNF(document.getText());
           diagnosticCollection.set(document.uri, []);
+          const undefinedVariableRegex = /\$\$\$(\w+)\$\$\$/g;
+          for (const match of formatted.matchAll(undefinedVariableRegex)) {
+            const [fullMatch, variableName] = match;
+            const diagnostic = new vscode__namespace.Diagnostic(
+              new vscode__namespace.Range(
+                document.positionAt(match.index),
+                document.positionAt(match.index + variableName.length)
+              ),
+              `Undefined variable: ${variableName}`,
+              vscode__namespace.DiagnosticSeverity.Error
+            );
+            diagnosticCollection.set(document.uri, [
+              ...diagnosticCollection.get(document.uri) ?? [],
+              diagnostic
+            ]);
+            formatted = formatted.replace(fullMatch, variableName);
+          }
           return [
             vscode__namespace.TextEdit.replace(
               new vscode__namespace.Range(
@@ -4097,6 +4427,62 @@ async function activate(context) {
     }
   );
   context.subscriptions.push(formatBBNF);
+  const testGrammarCache = /* @__PURE__ */ new Map();
+  const testGrammar = vscode__namespace.commands.registerCommand(
+    "extension.testGrammar",
+    async () => {
+      const editor = vscode__namespace.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      const document = editor.document;
+      const text = document.getText();
+      if (text.length === 0) {
+        return;
+      }
+      let nonterminals;
+      let ast;
+      try {
+        [nonterminals, ast] = generateParserFromEBNF(text);
+      } catch (e) {
+        return;
+      }
+      const key = document.uri.toString();
+      if (!testGrammarCache.has(key)) {
+        testGrammarCache.set(key, {
+          nonterminal: "",
+          testString: ""
+        });
+      }
+      const cache = testGrammarCache.get(key);
+      const nonterminalString = await vscode__namespace.window.showInputBox({
+        prompt: "Enter a nonterminal to test",
+        placeHolder: "Type here...",
+        value: cache.nonterminal
+      });
+      if (!nonterminalString) {
+        return;
+      }
+      cache.nonterminal = nonterminalString;
+      const testString = await vscode__namespace.window.showInputBox({
+        prompt: "Enter your test string",
+        placeHolder: "Type here...",
+        value: cache.testString
+      });
+      if (!testString) {
+        return;
+      }
+      cache.testString = testString;
+      const parser = nonterminals[nonterminalString];
+      const result = parser.parse(testString);
+      if (!result) {
+        vscode__namespace.window.showInformationMessage("No match");
+      } else {
+        vscode__namespace.window.showInformationMessage(`Matched: ${result}`);
+      }
+    }
+  );
+  context.subscriptions.push(testGrammar);
 }
 exports.activate = activate;
 //# sourceMappingURL=extension.js.map

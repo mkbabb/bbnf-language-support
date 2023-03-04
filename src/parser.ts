@@ -1,4 +1,4 @@
-import { generateASTFromEBNF, topologicalSort } from "@mkbabb/parse-that/ebnf";
+import { generateASTFromEBNF, removeAllLeftRecursion, topologicalSort } from "@mkbabb/parse-that/ebnf";
 
 export function locStart(node: object): number {
     return 0;
@@ -11,13 +11,15 @@ export function preprocess(text: string, options: object): string {
 }
 
 export function parse(text: string, parsers: object, options: object) {
-    const [parser, ast] = generateASTFromEBNF(text);
+    let [parser, ast] = generateASTFromEBNF(text);
 
     if (parser.state.isError) {
         throw new Error(`Error parsing EBNF: ${parser.state}`, {
             cause: parser,
         });
     }
+
+    // ast = removeAllLeftRecursion(ast);
 
     let prettierAST;
     // @ts-ignore

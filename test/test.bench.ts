@@ -1,6 +1,6 @@
 import { test, expect, describe, it, bench, BenchOptions } from "vitest";
 import fs from "fs";
-import { formatEBNF } from "../src/";
+import { formatEBNF } from "../src";
 
 const input = fs.readFileSync("./grammar/eebnf.ebnf", "utf8");
 const options = {

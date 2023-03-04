@@ -51,5 +51,6 @@ export const formatEBNF = (grammar: string) => {
     return prettier.format(grammar, {
         parser: "ebnf",
         plugins: [EBNFPlugin],
+        ...defaultOptions,
     });
 };

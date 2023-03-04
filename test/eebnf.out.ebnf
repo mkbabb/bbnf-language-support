@@ -1,148 +1,20 @@
-letter =
-    "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J"
-     | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" | "S" | "T"
-     | "U" | "V" | "W" | "X" | "Y" | "Z" | "a" | "b" | "c" | "d"
-     | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n"
-     | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x"
-     | "y" | "z" ;
-
-digit =
-    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" ;
-
-symbol =
-    "[" | "]" | "{" | "}" | "(" | ")" | "<" | ">" | "'" | '"'
-     | "=" | "|" | "." | "," | ";" | "+" | "-" | "*" | "/" | "?"
-     | "%" | "&" | "^" | "~" | "`" | "!" | "@" | "#" | "$" | ":"
-     | "\\" | "ε" | "\\t" | "\\r" | "?w" | "??" | "//" | " " ;
-
-pipe = "|" ;
-comma = "," ;
-star = "*" ;
-plus = "+" ;
-question = "?" ;
-minus = "-" ;
-div = "/" ;
-left_shift = "<<" ;
-right_shift = ">>" ;
-eof = "$" ;
-optional_whitespace = "?w" ;
-colasece = "??" ;
-character = letter | digit | symbol | "_" ;
-
-identifier = letter , letter | digit | "_" | "-"* ;
-
-terminal =
-    "'" , ( character - "'" )* , "'" |
-        '"' , ( character - '"' )* , '"' ;
-
-big_comment = "/*" , /.*$/ , "*/" ;
-
-comment = "//" , /.*$/ ;
-
-regex = div , ( character - div )* , div ;
-
-lhs = identifier ;
-term =
-    "ε" | big_comment | identifier | terminal | regex | eof |
-        "(" , rhs , ")" | "[" , rhs , "]" | "{" , rhs , "}" ;
-
-factor =
-    term , optional_whitespace | term , colasece , term |
-        term , question | term , star | term , plus |
-        term , minus , term | term , left_shift , term |
-        term , right_shift , term | term ;
-
-concatenation = factor , comma , factor* ;
-
-alternation = concatenation , pipe , concatenation* ;
-
-rhs = comment | alternation | concatenation | factor ;
-
-rule = lhs , "=" , rhs , ";" ;
-
-grammar = ( comment | rule )* ;
-COMMA = ","?w ;
-VENDOR_PREFIX = /-\w+-/ ;
-IDENT = /[a-zA-Z0-9_-]+/ ;
-NUMBER = /-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/ ;
-PERCENTAGE = /[0-9]+%/ ;
-DIMENSION = /[0-9]+/ , IDENT ;
-
-HASH = /#[a-zA-Z0-9_-]+/ ;
-INCLUDES = /~=([a-zA-Z0-9_-]+)/ ;
-DASHMATCH = /\|=(.+)/ ;
-IMPORTANT_SYM = /!important/ ;
-UNICODE_RANGE = /u\+[0-9a-fA-F?]{1,6}(-[0-9a-fA-F]{1,6})?/ ;
-STRING = /"((?:[^"\n\r\f\\]|\\[\n\r\f\\"])*?)"/ ;
-FUNCTION =
-    IDENT , "(" >> ( ( PROPERTY_VALUE?w << COMMA? )+ )?w << ")" ;
-
-FROM_TO_KEYWORD = "from" | "to" | "tooge" ;
-
-PROPERTY_NAME = IDENT ;
-PROPERTY_VALUE =
-    FUNCTION | STRING | PERCENTAGE | DIMENSION | HASH | INCLUDES
-     | DASHMATCH | UNICODE_RANGE | IMPORTANT_SYM | NUMBER
-     | IDENT ;
-
-DECLARATION = ( PROPERTY_NAME << ":" )?w , PROPERTY_VALUE ;
-
-DECLARATIONS_LIST = ( DECLARATION?w << ";"? )+ << ";"? ;
-KEYFRAMES_NAME = IDENT ;
-KEYFRAME_SELECTOR =
-    PERCENTAGE | FROM_TO_KEYWORD | ( PERCENTAGE << COMMA? )+ ;
-
-KEYFRAME_BLOCK =
-    KEYFRAME_SELECTOR?w , "{" , DECLARATIONS_LIST?w , "}" ;
-
-KEYFRAME_BLOCKS = ( VENDOR_PREFIX? , KEYFRAME_BLOCK?w )+ ;
-KEYFRAMES_RULE = (
-        "@keyframes"?w , KEYFRAMES_NAME?w , "{"
-         , KEYFRAME_BLOCKS?w , "}"
- )?w ;
-absoluteLengthUnit =
-    "cm" | "mm" | "Q" | "in" | "pc" | "pt" | "px" ;
-
-relativeLengthUnit =
-    "em" | "ex" | "ch" | "rem" | "lh" | "vw" | "vh" | "vmin"
-     | "vmax" | "fr" | "dvh" | "dvmin" | "dvmax" | "dvw" | "vb"
-     | "vi" | "svw" | "svh" ;
-
-lengthUnit = absoluteLengthUnit | relativeLengthUnit ;
-
-angleUnit = "deg" | "rad" | "grad" | "turn" ;
-
-timeUnit = "s" | "ms" ;
-
-resolutionUnit = "dpi" | "dpcm" | "dppx" ;
-
-percentageUnit = "%" ;
-number = /-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/ ;
-length = number , lengthUnit ;
-
-angle = number , angleUnit ;
-
-time = number , timeUnit ;
-
-resolution = number , resolutionUnit ;
-
-percentage = integer , percentageUnit ;
-
-unitless = number ;
-valueUnit =
-    length | angle | time | resolution | percentage | color | (
-            number , unitless?
-     ) ;
-
+// biiiiiiiiig vibes
 null = "null" ;
 bool = "true" | "false" ;
 
+// yeah man i'm str8 up a vibing human
+// that's really just going for it
+number = /-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/ ;
+// oh wow ;
 char = /[^"'\\]+/ | /\\"/ | /\\'/ | /\\\\/ ;
 
-string = '"' >> char << '"' | "'" >> char << "'" ;
+// ' fixed dat lol
+string = '"' >> char /*" i'm a vibe machine "*/  << '"' | "'" >> char << "'" ;
 
 array = "[" >> ( value << ","? )* << "]" ;
-pair = string , ":" >> value ;
+pair = string , ":" >> value /*" i'm a vibe machine "*/  ;
 
 object = "{" >> ( pair << ","? )* << "}" ;
 value = null | bool | number | string | array | object ;
+
+// and done

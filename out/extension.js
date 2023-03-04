@@ -2783,6 +2783,40 @@ function locEnd(node) {
 function preprocess(text, options) {
   return text;
 }
+function traverseAST(ast, callback) {
+  const stack = [...ast.values()].map((x) => x.expression).reverse();
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node)
+      continue;
+    callback(node);
+    if (node.value instanceof Array) {
+      for (let i = node.value.length - 1; i >= 0; i--) {
+        stack.push(node.value[i]);
+      }
+    } else {
+      stack.push(node.value);
+    }
+  }
+}
+function findUndefinedNonterminals(ast) {
+  const undefinedNonterminals = [];
+  traverseAST(ast, (node) => {
+    if (node.type === "nonterminal" && !ast.has(node.value)) {
+      undefinedNonterminals.push(node);
+    }
+  });
+  return undefinedNonterminals;
+}
+function findUnusedTerminals(ast) {
+  const used = /* @__PURE__ */ new Set();
+  traverseAST(ast, (node) => {
+    if (node.type === "noneterminal") {
+      used.add(node.value);
+    }
+  });
+  return [...ast.entries()].filter(([name]) => !used.has(name));
+}
 function parse(text, parsers2, options) {
   let [parser, ast] = generateASTFromEBNF(text);
   if (parser.state.isError) {
@@ -4244,10 +4278,7 @@ function printScope(node, scope) {
           const s2 = node2.value;
           return docExports.builders.group(['"', s2, '"']);
         case "nonterminal":
-          if (scope.has(node2.value)) {
-            return node2.value;
-          }
-          return docExports.builders.group(["$$$", node2.value, "$$$"]);
+          return node2.value;
         case "epsilon":
           return "ε";
         case "group":
@@ -4328,7 +4359,7 @@ function EBNFPrint(path, options) {
     [...ast.entries()].map(([name, rule]) => {
       var _a, _b;
       const { expression, comment } = rule;
-      const line = [name, " = ", printScope(expression, ast), " ;"];
+      const line = [name, " = ", printScope(expression), " ;"];
       const above = ((_a = comment == null ? void 0 : comment.above) == null ? void 0 : _a.length) ? [docExports.builders.join(docExports.builders.hardline, comment.above), docExports.builders.hardline] : [];
       const below = ((_b = comment == null ? void 0 : comment.below) == null ? void 0 : _b.length) ? [docExports.builders.join(docExports.builders.hardline, comment.below)] : [];
       const commentedLine = docExports.builders.group([above, line, " ", docExports.builders.lineSuffix(below)]);
@@ -4339,6 +4370,13 @@ function EBNFPrint(path, options) {
     })
   );
   return d;
+}
+function printExpressionToString(node) {
+  return docExports.printer.printDocToString(printScope(node), {
+    printWidth: 66,
+    tabWidth: 2,
+    useTabs: false
+  }).formatted;
 }
 const languages = [
   {
@@ -4387,10 +4425,96 @@ const formatEBNF = (grammar, options) => {
     ...options ?? {}
   });
 };
+const reportParsingError = (parser, document, diagnosticCollection) => {
+  const state = parser.state;
+  const lineNumber = state.getLineNumber();
+  const columnNumber = state.getColumnNumber();
+  const diagnostic = new vscode__namespace.Diagnostic(
+    new vscode__namespace.Range(lineNumber, columnNumber, lineNumber, columnNumber + 1),
+    "Error parsing BBNF, last value was: " + printExpressionToString(state == null ? void 0 : state.value),
+    vscode__namespace.DiagnosticSeverity.Error
+  );
+  diagnosticCollection.set(document.uri, [
+    ...diagnosticCollection.get(document.uri) ?? [],
+    diagnostic
+  ]);
+};
+const reportUndefinedNonterminals = (text, document, diagnosticCollection) => {
+  const [parser, ast] = generateASTFromEBNF(text);
+  if (parser.state.isError) {
+    reportParsingError(parser, document, diagnosticCollection);
+    return;
+  }
+  const undefinedNonterminals = findUndefinedNonterminals(ast);
+  for (const match of undefinedNonterminals) {
+    const { value, offset } = match;
+    const diagnostic = new vscode__namespace.Diagnostic(
+      new vscode__namespace.Range(
+        document.positionAt(offset - value.length - 1),
+        document.positionAt(offset - 1)
+      ),
+      `Undefined variable: ${value}`,
+      vscode__namespace.DiagnosticSeverity.Error
+    );
+    diagnosticCollection.set(document.uri, [
+      ...diagnosticCollection.get(document.uri) ?? [],
+      diagnostic
+    ]);
+  }
+};
+const reportUnusedTerminals = (text, document, diagnosticCollection) => {
+  const [parser, ast] = generateASTFromEBNF(text);
+  if (parser.state.isError) {
+    reportParsingError(parser, document, diagnosticCollection);
+    return;
+  }
+  const unusedTerminals = findUnusedTerminals(ast);
+  for (const [name, match] of unusedTerminals) {
+    const { offset } = match;
+    const diagnostic = new vscode__namespace.Diagnostic(
+      new vscode__namespace.Range(
+        document.positionAt(offset - name.length - 1),
+        document.positionAt(offset - 1)
+      ),
+      `Unused variable: ${name}`,
+      vscode__namespace.DiagnosticSeverity.Warning
+    );
+    diagnosticCollection.set(document.uri, [
+      ...diagnosticCollection.get(document.uri) ?? [],
+      diagnostic
+    ]);
+  }
+};
 async function activate(context) {
   const diagnosticCollection = vscode__namespace.languages.createDiagnosticCollection("bbnf");
   diagnosticCollection.clear();
   const BBNFFileSelector = { language: "bbnf", scheme: "file" };
+  const report = (document, text) => {
+    diagnosticCollection.clear();
+    if (document.languageId !== "bbnf") {
+      return;
+    }
+    if (text.length === 0) {
+      return;
+    }
+    reportUndefinedNonterminals(text, document, diagnosticCollection);
+    reportUnusedTerminals(text, document, diagnosticCollection);
+  };
+  const documentChangeDisposable = vscode__namespace.workspace.onDidChangeTextDocument(
+    (event) => {
+      const document = event.document;
+      const text = document.getText();
+      report(document, text);
+    }
+  );
+  context.subscriptions.push(documentChangeDisposable);
+  const documentOpenDisposable = vscode__namespace.workspace.onDidOpenTextDocument(
+    (document) => {
+      const text = document.getText();
+      report(document, text);
+    }
+  );
+  context.subscriptions.push(documentOpenDisposable);
   const formatBBNF = vscode__namespace.languages.registerDocumentFormattingEditProvider(
     BBNFFileSelector,
     {
@@ -4399,62 +4523,20 @@ async function activate(context) {
         if (text.length === 0) {
           return [];
         }
-        let nonterminals;
-        let ast;
-        try {
-          [nonterminals, ast] = generateParserFromEBNF(text);
-        } catch (e) {
-          return;
-        }
-        try {
-          let formatted = formatEBNF(text);
-          diagnosticCollection.set(document.uri, []);
-          const undefinedVariableRegex = /\$\$\$(\w+)\$\$\$/g;
-          for (const match of formatted.matchAll(undefinedVariableRegex)) {
-            const [fullMatch, variableName] = match;
-            const diagnostic = new vscode__namespace.Diagnostic(
-              new vscode__namespace.Range(
-                document.positionAt(match.index),
-                document.positionAt(match.index + variableName.length)
-              ),
-              `Undefined variable: ${variableName}`,
-              vscode__namespace.DiagnosticSeverity.Error
-            );
-            diagnosticCollection.set(document.uri, [
-              ...diagnosticCollection.get(document.uri) ?? [],
-              diagnostic
-            ]);
-            formatted = formatted.replace(fullMatch, variableName);
-          }
-          return [
-            vscode__namespace.TextEdit.replace(
-              new vscode__namespace.Range(
-                document.positionAt(0),
-                document.positionAt(document.getText().length)
-              ),
-              formatted
-            )
-          ];
-        } catch (e) {
-          const { message, cause } = e;
-          const parser = cause;
-          const state = parser.state;
-          const lineNumber = state.getLineNumber();
-          const columnNumber = state.getColumnNumber();
-          console.error(e);
-          const diagnostic = new vscode__namespace.Diagnostic(
-            new vscode__namespace.Range(
-              lineNumber,
-              columnNumber,
-              lineNumber,
-              columnNumber + 1
-            ),
-            "Error parsing BBNF",
-            vscode__namespace.DiagnosticSeverity.Error
-          );
-          diagnosticCollection.set(document.uri, [diagnostic]);
+        const formatted = formatEBNF(text);
+        if (!formatted) {
           return [];
         }
+        report(document, formatted);
+        return [
+          vscode__namespace.TextEdit.replace(
+            new vscode__namespace.Range(
+              document.positionAt(0),
+              document.positionAt(document.getText().length)
+            ),
+            formatted
+          )
+        ];
       }
     }
   );

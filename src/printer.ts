@@ -1,8 +1,8 @@
-import { builders as b } from "prettier/doc";
+import { builders as b, printer } from "prettier/doc";
 import { Expression, ProductionRule } from "@mkbabb/parse-that/ebnf";
-import { AST, AstPath, Doc, Options } from "prettier";
+import { AST, AstPath, Doc, Options, doc, util } from "prettier";
 
-function printScope(node: Expression, scope: AST): Doc {
+function printScope(node: Expression, scope?: AST): Doc {
     function print(node: Expression): Doc {
         if (!node) {
             return "";
@@ -17,10 +17,7 @@ function printScope(node: Expression, scope: AST): Doc {
                     const s = node.value;
                     return b.group(['"', s, '"']);
                 case "nonterminal":
-                    if (scope.has(node.value)) {
-                        return node.value;
-                    }
-                    return b.group(["$$$", node.value, "$$$"]);
+                    return node.value;
                 case "epsilon":
                     return "ε";
                 case "group":
@@ -129,4 +126,12 @@ export function EBNFPrint(path: AstPath, options: Options): Doc {
     );
 
     return d;
+}
+
+export function printExpressionToString(node: Expression): string {
+    return printer.printDocToString(printScope(node), {
+        printWidth: 66,
+        tabWidth: 2,
+        useTabs: false,
+    }).formatted;
 }

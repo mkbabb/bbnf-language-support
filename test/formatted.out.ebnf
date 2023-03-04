@@ -11,11 +11,11 @@ string =
 
 
 
- "*/,/*" i'm a vibe machine "*/ $$$char$$$ /*" i'm a vibe machine "*/ << '"'
-   | "'" >> $$$char$$$ << "'" ;
+ "*/,/*" i'm a vibe machine "*/ char /*" i'm a vibe machine "*/ << '"'
+   | "'" >> char << "'" ;
 
 array = "[" >> ( value << ","? )* << "]" ; // hey
 pair = string , ":" >> value /*" i'm a vibe machine "*/ ;
 
 object = "{" >> ( pair << ","? )* << "}" ;
-value = null | $$$bool$$$ | number | string | array | object ; // and done
+value = null | bool | number | string | array | object ; // and done

@@ -9,15 +9,16 @@ export default defineConfig(({ mode }) => {
 
             build: {
                 outDir: "out",
-                minify: true,
+                minify: false,
                 sourcemap: true,
+
                 lib: {
                     entry: "./src/extension.ts",
                     fileName: "extension",
-                    formats: ["es", "cjs"],
+                    formats: ["cjs"],
                 },
                 rollupOptions: {
-                    external: ["vscode"],
+                    external: ["vscode", "prettier", "chalk"],
                     output: {
                         globals: {
                             vscode: "vscode",
@@ -38,11 +39,10 @@ export default defineConfig(({ mode }) => {
 
             lib: {
                 entry: "./src/index.ts",
-                name: "prettier-plugin-bbnf",
-                formats: ["es", "cjs"],
+                formats: ["es"],
             },
             rollupOptions: {
-                external: ["prettier"],
+                external: ["chalk", "prettier"],
             },
         },
 
@@ -51,7 +51,8 @@ export default defineConfig(({ mode }) => {
                 provider: "c8",
                 reporter: ["text", "json", "html"],
             },
-            forceRerunTriggers: ["./grammar/*.ebnf", "./grammar/*.bbnf"],
+
+            forceRerunTriggers: ["**/*.input.ebnf"],
         },
 
         plugins: [commonjs()],

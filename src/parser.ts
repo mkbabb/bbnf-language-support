@@ -11,10 +11,15 @@ export function preprocess(text: string, options: object): string {
 }
 
 export function parse(text: string, parsers: object, options: object) {
-    const ast = generateASTFromEBNF(text);
+    const [parser, ast] = generateASTFromEBNF(text);
+
+    if (parser.state.isError) {
+        throw new Error(`Error parsing EBNF: ${parser.state}`, {
+            cause: parser,
+        });
+    }
 
     let prettierAST;
-
     // @ts-ignore
     if (options.sort) {
         prettierAST = [...topologicalSort(ast).entries()].reverse();

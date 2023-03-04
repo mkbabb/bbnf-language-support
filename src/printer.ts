@@ -73,6 +73,10 @@ function print(node: Expression): Doc {
 
 export function EBNFPrint(path: AstPath, options: Options): Doc {
     const node = path.getValue() as AST;
+    if (!node) {
+        return "";
+    }
+
     options.printWidth = 66;
 
     const d = b.join(

@@ -6,8 +6,10 @@ bool = "true" | "false" ;
 // that's really just going for it
 number = /-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/y ; // oh wow ;
 
-char = /[^"'\\]+/ | /\\"/ | /\\'/ | /\\\\/ ; // ' fixed dat lol
+cha = /[^"'\\]+/ | /\\"/ | /\\'/ | /\\\\/ ; // ' fixed dat lol
 string = '"' >> /*" i'm a vibe machine
+
+
 
 
 

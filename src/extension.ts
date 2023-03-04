@@ -1,8 +1,14 @@
+import { Parser } from "@mkbabb/parse-that";
 import * as vscode from "vscode";
+
+vscode.window.showInformationMessage("Vibes!");
 
 import { formatEBNF } from ".";
 
 export async function activate(context: vscode.ExtensionContext) {
+    const diagnosticCollection = vscode.languages.createDiagnosticCollection("bbnf");
+    diagnosticCollection.clear();
+
     const vibes = vscode.commands.registerCommand("extension.vibes", () => {
         vscode.window.showInformationMessage("Vibes!");
     });
@@ -10,52 +16,56 @@ export async function activate(context: vscode.ExtensionContext) {
 
     const BBNFFileSelector = { language: "bbnf", scheme: "file" };
 
-    const softBBNF = vscode.commands.registerCommand("extension.sort", () => {
-        const editor = vscode.window.activeTextEditor;
-        if (editor) {
-            const document = editor.document;
-            const selection = editor.selection;
-            const text = document.getText(selection);
-
-            const formatted = formatEBNF(text, { sort: true });
-            if (!formatted) {
-                vscode.window.showInformationMessage("Formatting failed.");
-                return;
-            }
-
-            editor.edit((editBuilder) => {
-                editBuilder.replace(selection, formatted);
-            });
-        }
-    });
-    context.subscriptions.push(softBBNF);
-
     const formatBBNF = vscode.languages.registerDocumentFormattingEditProvider(
         BBNFFileSelector,
         {
             provideDocumentFormattingEdits(
                 document: vscode.TextDocument
             ): vscode.TextEdit[] {
-                vscode.window.showInformationMessage("formattin");
                 if (document.getText().length === 0) {
                     return [];
                 }
 
-                const formatted = formatEBNF(document.getText());
-                if (!formatted) {
-                    vscode.window.showInformationMessage("Formatting failed.");
+                try {
+                    const formatted = formatEBNF(document.getText());
+
+                    diagnosticCollection.set(document.uri, []);
+
+                    return [
+                        vscode.TextEdit.replace(
+                            new vscode.Range(
+                                document.positionAt(0),
+                                document.positionAt(document.getText().length)
+                            ),
+                            formatted
+                        ),
+                    ];
+                } catch (e) {
+                    const { message, cause } = e;
+                    const parser = cause as Parser;
+
+                    const state = parser.state;
+
+                    const lineNumber = state.getLineNumber();
+                    const columnNumber = state.getColumnNumber();
+
+                    console.error(e);
+
+                    const diagnostic = new vscode.Diagnostic(
+                        new vscode.Range(
+                            lineNumber,
+                            columnNumber,
+                            lineNumber,
+                            columnNumber + 1
+                        ),
+                        "Error parsing BBNF",
+                        vscode.DiagnosticSeverity.Error
+                    );
+
+                    diagnosticCollection.set(document.uri, [diagnostic]);
+
                     return [];
                 }
-
-                return [
-                    vscode.TextEdit.replace(
-                        new vscode.Range(
-                            document.positionAt(0),
-                            document.positionAt(document.getText().length)
-                        ),
-                        formatted
-                    ),
-                ];
             },
         }
     );

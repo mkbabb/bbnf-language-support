@@ -11,16 +11,20 @@ export function preprocess(text: string, options: object): string {
 }
 
 export function parse(text: string, parsers: object, options: object) {
-    let ast = generateASTFromEBNF(text);
+    const ast = generateASTFromEBNF(text);
 
-    ast = topologicalSort(ast);
+    let prettierAST;
 
-    ast = [...ast.entries()]
-        .reverse()
+    // @ts-ignore
+    if (options.sort) {
+        prettierAST = [...topologicalSort(ast).entries()].reverse();
+    } else {
+        prettierAST = [...ast.entries()];
+    }
+
+    return prettierAST
         .filter(([key]) => key)
         .reduce((acc, [key, value]) => {
             return acc.set(key, value);
         }, new Map());
-
-    return ast;
 }

@@ -7,7 +7,11 @@ bool = "true" | "false" ;
 number = /-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/ ; // oh wow ;
 
 char = /[^"'\\]+/ | /\\"/ | /\\'/ | /\\\\/ ; // ' fixed dat lol
-string = '"' >> char /*" i'm a vibe machine "*/ << '"' | "'" >> char << "'" ;
+string = '"' >> /*" i'm a vibe machine
+
+
+
+ "*/ /*" i'm a vibe machine "*/ char /*" i'm a vibe machine "*/ << '"' | "'" >> char << "'" ;
 array = "[" >> ( value << ","? ) * << "]" ;
 
 pair = string, ":" >>  value /*" i'm a vibe machine "*/ ;

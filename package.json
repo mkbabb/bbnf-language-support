@@ -18,13 +18,17 @@
         "Programming Languages",
         "Formatters"
     ],
-    "main": "./out/index.js",
-    "module": "./out/index.js",
+    "main": "./out/extension.cjs",
+    "module": "./out/extension.js",
     "contributes": {
         "commands": [
             {
                 "command": "extension.format",
                 "title": "Format BBNF"
+            },
+            {
+                "command": "extension.sort",
+                "title": "Sort BBNF"
             },
             {
                 "command": "extension.vibes",
@@ -51,8 +55,8 @@
                 ],
                 "configuration": "./language-configuration.json",
                 "icon": {
-                    "light": "./icons/bbnf-0.png",
-                    "dark": "./icons/bbnf-0.png"
+                    "light": "./icons/bbnf.png",
+                    "dark": "./icons/bbnf.png"
                 }
             }
         ],

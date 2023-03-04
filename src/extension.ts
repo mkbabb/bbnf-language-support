@@ -8,27 +8,56 @@ export async function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(vibes);
 
-    const selector = { language: "bbnf", scheme: "file" };
-    const fmt = vscode.languages.registerDocumentFormattingEditProvider(selector, {
-        provideDocumentFormattingEdits(
-            document: vscode.TextDocument
-        ): vscode.TextEdit[] {
-            vscode.window.showInformationMessage("formattin");
-            if (document.getText().length === 0) {
-                return [];
+    const BBNFFileSelector = { language: "bbnf", scheme: "file" };
+
+    const softBBNF = vscode.commands.registerCommand("extension.sort", () => {
+        const editor = vscode.window.activeTextEditor;
+        if (editor) {
+            const document = editor.document;
+            const selection = editor.selection;
+            const text = document.getText(selection);
+
+            const formatted = formatEBNF(text, { sort: true });
+            if (!formatted) {
+                vscode.window.showInformationMessage("Formatting failed.");
+                return;
             }
 
-            const formatted = formatEBNF(document.getText());
-            return [
-                vscode.TextEdit.replace(
-                    new vscode.Range(
-                        document.positionAt(0),
-                        document.positionAt(document.getText().length)
-                    ),
-                    formatted
-                ),
-            ];
-        },
+            editor.edit((editBuilder) => {
+                editBuilder.replace(selection, formatted);
+            });
+        }
     });
-    context.subscriptions.push(fmt);
+    context.subscriptions.push(softBBNF);
+
+    const formatBBNF = vscode.languages.registerDocumentFormattingEditProvider(
+        BBNFFileSelector,
+        {
+            provideDocumentFormattingEdits(
+                document: vscode.TextDocument
+            ): vscode.TextEdit[] {
+                vscode.window.showInformationMessage("formattin");
+                if (document.getText().length === 0) {
+                    return [];
+                }
+
+                const formatted = formatEBNF(document.getText());
+                if (!formatted) {
+                    vscode.window.showInformationMessage("Formatting failed.");
+                    return [];
+                }
+
+                return [
+                    vscode.TextEdit.replace(
+                        new vscode.Range(
+                            document.positionAt(0),
+                            document.positionAt(document.getText().length)
+                        ),
+                        formatted
+                    ),
+                ];
+            },
+        }
+    );
+    context.subscriptions.push(formatBBNF);
 }

@@ -34,7 +34,7 @@ const parsers = {
 
 const defaultOptions = {
     ebnf: {
-        printWidth: 80,
+        printWidth: 66,
         tabWidth: 4,
         useTabs: false,
     },
@@ -47,10 +47,11 @@ export const EBNFPlugin = {
     defaultOptions,
 } as Plugin;
 
-export const formatEBNF = (grammar: string) => {
+export const formatEBNF = (grammar: string, options?) => {
     return prettier.format(grammar, {
         parser: "ebnf",
         plugins: [EBNFPlugin],
         ...defaultOptions,
+        ...(options ?? {}),
     });
 };

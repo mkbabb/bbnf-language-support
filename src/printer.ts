@@ -1,6 +1,6 @@
 import { builders as b } from "prettier/doc";
 import { Expression, ProductionRule } from "@mkbabb/parse-that/ebnf";
-import prettier, { AST, AstPath, Doc, Options, Printer } from "prettier";
+import prettier, { AST, AstPath, Doc, Options, Printer, util } from "prettier";
 
 function print(node: Expression): Doc {
     const innerPrint = () => {
@@ -63,7 +63,9 @@ function print(node: Expression): Doc {
 
     const s = innerPrint();
     if (node.comment) {
-        return b.group([s, " ", node.comment, " "]);
+        const left = node.comment.left.length ? node.comment.left + " " : "";
+        const right = node.comment.right.length ? " " + node.comment.right : "";
+        return b.group([left, s, right]);
     }
 
     return s;
@@ -71,11 +73,15 @@ function print(node: Expression): Doc {
 
 export function EBNFPrint(path: AstPath, options: Options): Doc {
     const node = path.getValue() as AST;
+    options.printWidth = 66;
 
     const d = b.join(
         b.hardline,
         [...node.entries()].map(([name, rule]: [string, ProductionRule]) => {
-            const { expression, comment } = rule;
+            const {
+                expression,
+                comment: { above, below },
+            } = rule;
 
             const head = [name, " = "];
             const tail = [print(expression), " ;"];
@@ -88,9 +94,6 @@ export function EBNFPrint(path: AstPath, options: Options): Doc {
                 }
                 return [...head, ...tail];
             })();
-
-            const above = comment.above ?? [];
-            const below = comment.below ?? [];
 
             return b.join(b.hardline, [...above, line, ...below]);
         })

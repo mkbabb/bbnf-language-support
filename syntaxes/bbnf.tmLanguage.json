@@ -1,32 +1,186 @@
 {
-	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-	"name": "BBNF",
-	"patterns": [
-		{
-			"include": "#keywords"
-		},
-		{
-			"include": "#strings"
-		}
-	],
-	"repository": {
-		"keywords": {
-			"patterns": [{
-				"name": "keyword.control.bbnf",
-				"match": "\\b(if|while|for|return)\\b"
-			}]
-		},
-		"strings": {
-			"name": "string.quoted.double.bbnf",
-			"begin": "\"",
-			"end": "\"",
-			"patterns": [
-				{
-					"name": "constant.character.escape.bbnf",
-					"match": "\\\\."
-				}
-			]
-		}
-	},
-	"scopeName": "source.bbnf"
+    "name": "Babb-Backus-Naur Form",
+    "scopeName": "source.bbnf",
+    "patterns": [
+        {
+            "include": "#source"
+        }
+    ],
+    "repository": {
+        "source": {
+            "patterns": [
+                {
+                    "include": "#comment"
+                },
+                {
+                    "include": "#lineComment"
+                },
+                {
+                    "include": "#rule"
+                }
+            ]
+        },
+        "comment": {
+            "name": "comment.block.bbnf",
+            "begin": "\\/\\*",
+            "end": "\\*\\/"
+        },
+        "lineComment": {
+            "name": "comment.line.number",
+            "match": "\\/\\/.*$"
+        },
+
+        "terminator": {
+            "name": "keyword.operator.terminator.bbnf",
+            "match": ";|\\."
+        },
+
+        "rule": {
+            "name": "meta.rule.bbnf",
+            "begin": "^([A-Za-z0-9_ -]+)\\s*(=)",
+            "beginCaptures": {
+                "1": {
+                    "name": "entity.name.class.bbnf"
+                },
+                "2": {
+                    "name": "keyword.operator.assignment.bbnf"
+                }
+            },
+            "end": ";|\\.",
+            "patterns": [
+                {
+                    "include": "#comment"
+                },
+                {
+                    "include": "#expression"
+                }
+            ]
+        },
+        "expression": {
+            "name": "meta.expression.bbnf",
+            "patterns": [
+                {
+                    "include": "#comment"
+                },
+                {
+                    "include": "#operator"
+                },
+                {
+                    "include": "#group"
+                },
+                {
+                    "include": "#optionalGroup"
+                },
+                {
+                    "include": "#manyGroup"
+                },
+                {
+                    "include": "#literal"
+                },
+                {
+                    "include": "#regex"
+                },
+                {
+                    "include": "#identifier"
+                },
+                {
+                    "include": "#specialTokens"
+                },
+                {
+                    "include": "#binaryExpression"
+                }
+            ]
+        },
+
+        "binaryExpression": {
+            "name": "meta.binaryExpression.bbnf",
+            "begin": "(\\>|\\<|\\-)(\\s*)(\\>|\\<|\\-)",
+            "beginCaptures": {
+                "1": {
+                    "name": "keyword.operator.bbnf"
+                },
+                "2": {
+                    "name": "keyword.operator.bbnf"
+                },
+                "3": {
+                    "name": "keyword.operator.bbnf"
+                }
+            },
+            "end": "(?=\\s*(\\>|\\<|\\-))",
+            "patterns": [
+                {
+                    "include": "#expression"
+                }
+            ]
+        },
+        "group": {
+            "name": "meta.group.bbnf",
+            "begin": "\\(",
+            "end": "\\)",
+            "patterns": [
+                {
+                    "include": "#expression"
+                }
+            ]
+        },
+        "optionalGroup": {
+            "name": "meta.optionalGroup.bbnf",
+            "begin": "\\[",
+            "end": "\\]",
+            "patterns": [
+                {
+                    "include": "#expression"
+                }
+            ]
+        },
+        "manyGroup": {
+            "name": "meta.manyGroup.bbnf",
+            "begin": "\\{",
+            "end": "\\}",
+            "patterns": [
+                {
+                    "include": "#expression"
+                }
+            ]
+        },
+        "literal": {
+            "name": "meta.literal.bbnf",
+            "patterns": [
+                {
+                    "name": "string.quoted.double.bbnf",
+                    "match": "\"[^\"]*\""
+                },
+                {
+                    "name": "string.quoted.single.bbnf",
+                    "match": "'[^']*'"
+                }
+            ]
+        },
+        "regex": {
+            "name": "string.regex.bbnf",
+            "match": "\\/([^\\/]+)\\/([gimuy]*)",
+            "captures": {
+                "0": { "name": "punctuation.definition.string.begin.regex.bbnf" },
+                "1": { "name": "string.regex.bbnf" },
+                "2": { "name": "keyword.other.bbnf" }
+            }
+        },
+        "operator": {
+            "name": "keyword.operator.bbnf",
+            "match": "\\||\\+|\\*|\\,|\\-|\\.\\.|\\?|(\\?w)|\\*"
+        },
+        "specialTokens": {
+            "name": "constant.language.bbnf",
+            "match": "ε|epsilon"
+        },
+        "identifier": {
+            "name": "meta.identifier.bbnf",
+            "match": "([A-Za-z0-9_][A-Za-z0-9_]*)",
+            "captures": {
+                "1": {
+                    "name": "entity.name.function.bbnf"
+                }
+            }
+        }
+    }
 }

@@ -4,7 +4,7 @@ bool = "true" | "false" ;
 
 // yeah man i'm str8 up a vibing human
 // that's really just going for it
-number = /-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/ ; // oh wow ;
+number = /-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/y ; // oh wow ;
 
 char = /[^"'\\]+/ | /\\"/ | /\\'/ | /\\\\/ ; // ' fixed dat lol
 string = '"' >> /*" i'm a vibe machine
@@ -12,7 +12,7 @@ string = '"' >> /*" i'm a vibe machine
 
 
  "*/ /*" i'm a vibe machine "*/ char /*" i'm a vibe machine "*/ << '"' | "'" >> char << "'" ;
-array = "[" >> ( value << ","? ) * << "]" ;
+array = "[" >> ( value << ","? ) * << "]" ; // hey
 
 pair = string, ":" >>  value /*" i'm a vibe machine "*/ ;
 object = "{" >> ( pair << ","? ) * << "}" ;

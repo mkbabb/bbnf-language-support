@@ -1,7 +1,11 @@
 {
     "name": "bbnf-language-support",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/mkbabb/bbnf-language-support"
+    },
     "description": "",
     "scripts": {
         "test": "vitest",

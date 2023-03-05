@@ -1,6 +1,6 @@
 # BBNF lang
 
-<image src=./icons/bbnf.png width="200" style="margin-bottom: 1rem; margin-left: 25%">
+<image src="https://raw.githubusercontent.com/mkbabb/bbnf-language-support/master/icons/bbnf.png" width="200" style="margin-bottom: 1rem; margin-left: 25%">
 
 Better Backus-Naur form: an extension to EBNF that allows for the definition of
 context-free grammars. Used within the

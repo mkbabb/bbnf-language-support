@@ -3,6 +3,7 @@ import vscode from "vscode";
 import { formatBBNF } from "../../src/prettier-plugin-bbnf";
 
 import {
+    DocumentRangeFormattingRequest,
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
@@ -16,35 +17,6 @@ const DOCUMENT_SELECTOR = {
 } as vscode.DocumentSelector;
 
 let LANGUAGE_CLIENT: LanguageClient;
-
-const formattingProvider = vscode.languages.registerDocumentFormattingEditProvider(
-    DOCUMENT_SELECTOR,
-    {
-        provideDocumentFormattingEdits(
-            document: vscode.TextDocument
-        ): vscode.TextEdit[] {
-            const text = document.getText();
-            if (text.length === 0) {
-                return [];
-            }
-
-            const formatted = formatBBNF(text);
-            if (!formatted) {
-                return [];
-            }
-
-            return [
-                vscode.TextEdit.replace(
-                    new vscode.Range(
-                        document.positionAt(0),
-                        document.positionAt(document.getText().length)
-                    ),
-                    formatted
-                ),
-            ];
-        },
-    }
-);
 
 type TestGrammarCache = {
     nonterminal: string;
@@ -157,7 +129,6 @@ export function activate(context: vscode.ExtensionContext) {
     // Start the client. This will also launch the server
     LANGUAGE_CLIENT.start();
 
-    context.subscriptions.push(formattingProvider);
     context.subscriptions.push(testGrammar);
 }
 

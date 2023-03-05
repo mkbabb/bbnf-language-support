@@ -1,6 +1,9 @@
 {
     "name": "bbnf-language-support",
-    "version": "0.0.1",
+    "displayName": "BBNF Language Support",
+    "version": "0.0.4",
+    "description": "BBNF lang formatting, intellisense, and more",
+    "icon": "icons/bbnf.png",
     "repository": {
         "type": "git",
         "url": "https://github.com/mkbabb/bbnf-language-support"
@@ -66,6 +69,12 @@
                 "language": "bbnf",
                 "scopeName": "source.bbnf",
                 "path": "./syntaxes/bbnf.tmLanguage.json"
+            }
+        ],
+        "commands": [
+            {
+                "command": "extension.testGrammar",
+                "title": "BBNF test grammar"
             }
         ]
     },

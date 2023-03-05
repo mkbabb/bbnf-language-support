@@ -11,10 +11,13 @@ import {
     TextDocumentPositionParams,
     TextDocumentSyncKind,
     InitializeResult,
+    TextEdit,
+    Range,
 } from "vscode-languageserver/node";
 
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { diagnose } from "./diagnostics";
+import { formatBBNF } from "../../src/prettier-plugin-bbnf";
 
 // Create a connection for the server, using Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -51,6 +54,7 @@ connection.onInitialize((params: InitializeParams) => {
             completionProvider: {
                 resolveProvider: true,
             },
+            documentFormattingProvider: true,
         },
     };
     if (hasWorkspaceFolderCapability) {
@@ -68,6 +72,7 @@ connection.onInitialized(() => {
         // Register for all configuration changes.
         connection.client.register(DidChangeConfigurationNotification.type, undefined);
     }
+
     if (hasWorkspaceFolderCapability) {
         connection.workspace.onDidChangeWorkspaceFolders((_event) => {
             connection.console.log("Workspace folder change event received.");
@@ -124,6 +129,33 @@ documents.onDidClose((e) => {
 // when the text document first opened or when its content has changed.
 documents.onDidChangeContent((change) => {
     validateTextDocument(change.document);
+});
+
+connection.onDocumentFormatting((params) => {
+    const document = documents.get(params.textDocument.uri);
+    if (!document) {
+        return [];
+    }
+
+    const text = document.getText();
+    if (text.length === 0) {
+        return [];
+    }
+
+    const formatted = formatBBNF(text);
+    if (!formatted) {
+        return [];
+    }
+
+    return [
+        TextEdit.replace(
+            Range.create(
+                document.positionAt(0),
+                document.positionAt(document.getText().length)
+            ),
+            formatted
+        ),
+    ];
 });
 
 async function validateTextDocument(textDocument: TextDocument): Promise<void> {

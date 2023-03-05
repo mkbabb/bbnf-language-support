@@ -3,7 +3,16 @@
 **/*.ts
 **/*.map
 .gitignore
+
+**/node_modules/**
+
 **/tsconfig.json
 **/tsconfig.base.json
 **/vite.config.ts
 **/test/**/*
+
+grammar/
+
+client/package.json
+server/package.json
+*/package-lock.json

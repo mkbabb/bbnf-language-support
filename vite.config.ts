@@ -2,15 +2,13 @@ import { defineConfig, LibraryOptions, UserConfig } from "vite";
 import commonjs from "@rollup/plugin-commonjs";
 
 const EXTERNAL_DEPS = [
-    "prettier",
-    "chalk",
-    "path",
+    // "path",
     "vscode",
-    "vscode-languageclient",
-    "vscode-languageclient/node",
-    "vscode-languageserver",
-    "vscode-languageserver/node",
-    "vscode-languageserver-textdocument",
+    // "vscode-languageclient",
+    // "vscode-languageclient/node",
+    // "vscode-languageserver",
+    // "vscode-languageserver/node",
+    // "vscode-languageserver-textdocument",
 ];
 
 const DEFAULT_CONFIG: Partial<UserConfig> = {

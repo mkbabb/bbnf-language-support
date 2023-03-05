@@ -14,6 +14,7 @@ export default defineConfig(({ mode }) => {
 
                 lib: {
                     entry: "./src/extension.ts",
+                    name: "extension",
                     fileName: "extension",
                     formats: ["cjs"],
                 },

@@ -1,48 +1,26 @@
 {
-    "name": "bbnf-language-support",
-    "version": "0.1.0",
+    "name": "@mkbabb/bbnf-language-support",
+    "version": "1.0.0",
     "type": "commonjs",
     "repository": {
         "type": "git",
         "url": "https://github.com/mkbabb/bbnf-language-support"
     },
-    "description": "",
-    "scripts": {
-        "test": "vitest",
-        "test:bench": "vitest bench",
-        "build": "vite build --mode vscode"
-    },
     "author": "@mkbabb",
-    "license": "ISC",
     "publisher": "mkbabb",
-    "engines": {
-        "vscode": "^1.60.0"
-    },
+    "keywords": [
+        "multi-root ready"
+    ],
     "categories": [
         "Programming Languages",
-        "Formatters"
+        "Formatters",
+        "Extension Packs"
     ],
-    "module": "./out/extension.js",
-    "main": "./out/extension.js",
+    "engines": {
+        "vscode": "^1.6.0"
+    },
+    "main": "./client/out/extension",
     "contributes": {
-        "commands": [
-            {
-                "command": "extension.format",
-                "title": "Format BBNF"
-            },
-            {
-                "command": "extension.testGrammar",
-                "title": "Test BBNF Grammar"
-            }
-        ],
-        "menus": {
-            "editor/title": [
-                {
-                    "command": "extension.format",
-                    "when": "resourceLangId == bbnf"
-                }
-            ]
-        },
         "languages": [
             {
                 "id": "bbnf",
@@ -68,9 +46,9 @@
             }
         ]
     },
-    "dependencies": {
-        "@mkbabb/parse-that": "github:mkbabb/parse-that",
-        "prettier": "^2.8.4"
+    "scripts": {
+        "build:client": "vite build --mode vscode ./client/",
+        "build:server": "vite build --mode vscode ./server/"
     },
     "devDependencies": {
         "@rollup/plugin-commonjs": "^24.0.1",

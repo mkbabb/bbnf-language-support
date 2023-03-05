@@ -2,7 +2,6 @@ import { Parser } from "@mkbabb/parse-that";
 import { generateASTFromEBNF, generateParserFromEBNF } from "@mkbabb/parse-that/ebnf";
 
 import * as vscode from "vscode";
-import * as crypto from "crypto";
 
 import { formatEBNF } from ".";
 import { findUndefinedNonterminals, findUnusedTerminals } from "./parser";

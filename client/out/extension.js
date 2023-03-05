@@ -4425,6 +4425,7 @@ const formatEBNF = (grammar, options) => {
     ...options ?? {}
   });
 };
+vscode__namespace.window.showInformationMessage("Vibes");
 const reportParsingError = (parser, document, diagnosticCollection) => {
   const state = parser.state;
   const lineNumber = state.getLineNumber();
@@ -4486,6 +4487,7 @@ const reportUnusedTerminals = (text, document, diagnosticCollection) => {
   }
 };
 async function activate(context) {
+  vscode__namespace.window.showInformationMessage("Activated BBNF extension");
   const diagnosticCollection = vscode__namespace.languages.createDiagnosticCollection("bbnf");
   diagnosticCollection.clear();
   const BBNFFileSelector = { language: "bbnf", scheme: "file" };

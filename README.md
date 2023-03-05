@@ -1,6 +1,6 @@
 # BBNF lang
 
-<image src="https://raw.githubusercontent.com/mkbabb/bbnf-language-support/master/icons/bbnf.png" width="200" style="margin-bottom: 1rem; margin-left: 25%">
+![image](icons/bbnf-banner.png)
 
 _Better Backus-Naur Form_
 

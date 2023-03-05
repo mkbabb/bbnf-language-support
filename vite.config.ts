@@ -4,7 +4,7 @@ import commonjs from "@rollup/plugin-commonjs";
 const EXTERNAL_DEPS = [
     "path",
     "vscode",
-    "vscode-languageclient/node",
+    // "vscode-languageclient/node",
     "vscode-languageserver/node",
     "vscode-languageserver-textdocument",
 ];

@@ -2,18 +2,18 @@ import { defineConfig, LibraryOptions, UserConfig } from "vite";
 import commonjs from "@rollup/plugin-commonjs";
 
 const EXTERNAL_DEPS = [
-    // "path",
+    "path",
     "vscode",
-    // "vscode-languageclient",
-    // "vscode-languageclient/node",
-    // "vscode-languageserver",
-    // "vscode-languageserver/node",
-    // "vscode-languageserver-textdocument",
+    "vscode-languageclient",
+    "vscode-languageclient/node",
+    "vscode-languageserver",
+    "vscode-languageserver/node",
+    "vscode-languageserver-textdocument",
 ];
 
 const DEFAULT_CONFIG: Partial<UserConfig> = {
     build: {
-        minify: false,
+        minify: true,
         outDir: "out",
         sourcemap: true,
         lib: { formats: ["cjs"] } as LibraryOptions,

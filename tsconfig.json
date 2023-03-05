@@ -1,29 +1,20 @@
 {
     "compilerOptions": {
-        "target": "ESNext",
-        "sourceMap": true,
-        "module": "ESNext",
-        "moduleResolution": "node",
+        "module": "commonjs",
+        "target": "es2020",
         "lib": [
-            "ESNext",
-            "DOM",
+            "es2020"
         ],
-        "alwaysStrict": true,
-        "strict": false,
-        "allowSyntheticDefaultImports": true,
-        "experimentalDecorators": true,
-        "outDir": "out"
+        "outDir": "out",
+        "rootDir": "src",
+        "sourceMap": true,
+        "isolatedModules": false
     },
     "include": [
-        "src/",
-        "test/"
+        "src"
     ],
-    "references": [
-        {
-            "path": "./client"
-        },
-        {
-            "path": "./server"
-        }
-    ]
+    "exclude": [
+        "node_modules",
+        ".vscode-test"
+    ],
 }

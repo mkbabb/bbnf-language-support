@@ -1,10 +1,9 @@
 "use strict";
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
-const path = require("path");
-const vscode = require("vscode");
+const node = require("vscode-languageserver/node");
+const vscodeLanguageserverTextdocument = require("vscode-languageserver-textdocument");
 const chalk = require("chalk");
-const prettier = require("prettier");
-const node = require("vscode-languageclient/node");
+const vscodeLanguageserver = require("vscode-languageserver");
 var __defProp$1 = Object.defineProperty;
 var __defNormalProp$1 = (obj, key, value) => key in obj ? __defProp$1(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __publicField$1 = (obj, key, value) => {
@@ -1442,13 +1441,13 @@ var doc$1 = {
   });
 })(doc$1);
 const MAX_LINES = 4;
-const defaultOptions$2 = {
+const defaultOptions$1 = {
   printWidth: 30,
   tabWidth: 4,
   useTabs: false
 };
 function prettierPrint(doc2) {
-  return docExports$1.printer.printDocToString(doc2, defaultOptions$2).formatted;
+  return docExports$1.printer.printDocToString(doc2, defaultOptions$1).formatted;
 }
 function addCursor(state, cursor = "^", error = false) {
   const color = (error ? chalk.red : chalk.green).bold;
@@ -1471,7 +1470,7 @@ function addCursor(state, cursor = "^", error = false) {
   return resultLines.join("\n");
 }
 const group = (docs, groupOptions = {}) => {
-  return docExports$1.builders.group(docs, { ...defaultOptions$2, ...groupOptions });
+  return docExports$1.builders.group(docs, { ...defaultOptions$1, ...groupOptions });
 };
 const opStyle = (op) => chalk.gray(op);
 const PARSER_STRINGS = /* @__PURE__ */ new Map();
@@ -1988,8 +1987,8 @@ class Parser {
     return new Parser(lazy2, createParserContext("lazy", void 0, fn));
   }
 }
-function isStringParsers(...parsers2) {
-  return parsers2.every(
+function isStringParsers(...parsers) {
+  return parsers.every(
     (p) => {
       var _a, _b, _c, _d;
       return (((_a = p.context) == null ? void 0 : _a.name) === "string" || ((_b = p.context) == null ? void 0 : _b.name) === "regex" || ((_c = p.context) == null ? void 0 : _c.name) === "whitespace") && ((_d = p.context) == null ? void 0 : _d.args);
@@ -2004,8 +2003,8 @@ function stringParserValue(p) {
     return (_e = p.context) == null ? void 0 : _e.args[0].source;
   }
 }
-function concatStringParsers(parsers2, delim = "", matchFunction) {
-  const s = parsers2.map((s2) => `(${stringParserValue(s2)})`).join(delim);
+function concatStringParsers(parsers, delim = "", matchFunction) {
+  const s = parsers.map((s2) => `(${stringParserValue(s2)})`).join(delim);
   const r = new RegExp(s);
   const rP = regex(r, matchFunction);
   if (delim !== "|") {
@@ -2040,12 +2039,12 @@ function lazy(target, propertyName, descriptor) {
     return new Parser(lazy2, createParserContext("lazy", void 0, method));
   };
 }
-function any(...parsers2) {
-  if (isStringParsers(...parsers2)) {
-    return concatStringParsers(parsers2, "|");
+function any(...parsers) {
+  if (isStringParsers(...parsers)) {
+    return concatStringParsers(parsers, "|");
   }
   const any2 = (state) => {
-    for (const parser of parsers2) {
+    for (const parser of parsers) {
       const newState = parser.parser(state);
       if (!newState.isError) {
         return newState;
@@ -2055,14 +2054,14 @@ function any(...parsers2) {
     return state.err(void 0);
   };
   return new Parser(
-    parsers2.length === 1 ? parsers2[0].parser : any2,
-    createParserContext("any", void 0, ...parsers2)
+    parsers.length === 1 ? parsers[0].parser : any2,
+    createParserContext("any", void 0, ...parsers)
   );
 }
-function all(...parsers2) {
+function all(...parsers) {
   const all2 = (state) => {
     const matches = [];
-    for (const parser of parsers2) {
+    for (const parser of parsers) {
       const newState = parser.parser(state);
       if (newState.isError) {
         return newState;
@@ -2076,8 +2075,8 @@ function all(...parsers2) {
     return state.ok(matches);
   };
   return new Parser(
-    parsers2.length === 1 ? parsers2[0].parser : all2,
-    createParserContext("all", void 0, ...parsers2)
+    parsers.length === 1 ? parsers[0].parser : all2,
+    createParserContext("all", void 0, ...parsers)
   );
 }
 function string(str) {
@@ -2190,7 +2189,7 @@ function mapStatePosition(parser) {
     return state;
   });
 }
-const defaultOptions$1 = {
+const defaultOptions = {
   debug: false,
   comments: true
 };
@@ -2198,7 +2197,7 @@ class EBNFGrammar {
   constructor(options) {
     __publicField(this, "options");
     this.options = {
-      ...defaultOptions$1,
+      ...defaultOptions,
       ...options ?? {}
     };
   }
@@ -2415,275 +2414,6 @@ __decorateClass([
 __decorateClass([
   lazy
 ], EBNFGrammar.prototype, "grammar", 1);
-function topologicalSort(ast) {
-  const visited = /* @__PURE__ */ new Set();
-  const order = [];
-  function visit(node2, stack) {
-    if (stack.has(node2) || visited.has(node2)) {
-      return;
-    }
-    stack.add(node2);
-    const productionRule = ast.get(node2);
-    if (!productionRule) {
-      return;
-    }
-    const expr = productionRule.expression;
-    if (expr.type === "nonterminal") {
-      visit(expr.value, stack);
-    } else if (expr.value instanceof Array) {
-      for (const child of expr.value) {
-        if (child.type === "nonterminal") {
-          visit(child.value, stack);
-        }
-      }
-    }
-    visited.add(node2);
-    stack.delete(node2);
-    order.unshift(ast.get(node2));
-  }
-  for (const [name] of ast) {
-    visit(name, /* @__PURE__ */ new Set());
-  }
-  const newAST = /* @__PURE__ */ new Map();
-  for (const rule of order) {
-    newAST.set(rule.name, rule);
-  }
-  return newAST;
-}
-const findCommonPrefix = (e1, e2) => {
-  if (!(e1 == null ? void 0 : e1.type) || !(e2 == null ? void 0 : e2.type) || e1.type !== e2.type) {
-    return void 0;
-  }
-  switch (e1.type) {
-    case "literal":
-    case "nonterminal": {
-      if (e1.value !== e2.value) {
-        return void 0;
-      } else {
-        return [e1, { type: "epsilon" }, { type: "epsilon" }];
-      }
-    }
-    case "group":
-    case "optional":
-    case "optionalWhitespace":
-    case "many":
-    case "many1": {
-      const common = findCommonPrefix(e1.value, e2.value);
-      if (!common) {
-        return void 0;
-      } else {
-        return [
-          {
-            type: e1.type,
-            value: common[0]
-          },
-          {
-            type: e1.type,
-            value: common[1]
-          },
-          {
-            type: e1.type,
-            value: common[2]
-          }
-        ];
-      }
-    }
-    case "concatenation": {
-      const commons = e1.value.map(
-        (_, i) => findCommonPrefix(e1.value[i], e2.value[i])
-      );
-      if (commons.some((x) => x === void 0)) {
-        return void 0;
-      }
-      const prefixes = commons.map((x) => x[0]);
-      const e1s = commons.map((x) => x[1]);
-      const e2s = commons.map((x) => x[2]);
-      const startIx = prefixes.lastIndexOf(null);
-      if (startIx === prefixes.length - 1) {
-        return void 0;
-      }
-      const prefix = prefixes.slice(startIx + 1);
-      return [
-        {
-          type: "concatenation",
-          value: prefix
-        },
-        {
-          type: "concatenation",
-          value: e1s
-        },
-        {
-          type: "concatenation",
-          value: e2s
-        }
-      ];
-    }
-    case "alternation":
-      for (const e of e1.value) {
-        const common = findCommonPrefix(e, e2);
-        if (common) {
-          return common;
-        }
-      }
-      for (const e of e2.value) {
-        const common = findCommonPrefix(e1, e);
-        if (common) {
-          return common;
-        }
-      }
-      return void 0;
-  }
-  return void 0;
-};
-const comparePrefix = (prefix, expr) => {
-  if (prefix.type !== expr.type) {
-    return false;
-  }
-  switch (prefix.type) {
-    case "literal":
-    case "nonterminal":
-      return prefix.value === expr.value;
-    case "group":
-    case "optional":
-    case "many":
-    case "many1":
-      return comparePrefix(prefix.value, expr.value);
-    case "minus":
-    case "skip":
-    case "next":
-      return comparePrefix(prefix.value[0], expr.value[0]) && comparePrefix(prefix.value[1], expr.value[1]);
-    case "concatenation":
-      return prefix.value.every((e, i) => comparePrefix(e, expr.value[i]));
-    case "alternation":
-      return prefix.value.some((e, i) => comparePrefix(e, expr.value[i]));
-    case "epsilon":
-      return true;
-  }
-};
-function rewriteTreeLeftRecursion(name, expr) {
-  const prefixMap = /* @__PURE__ */ new Map();
-  let commonPrefix = null;
-  for (let i = 0; i < expr.value.length - 1; i++) {
-    const e1 = expr.value[i];
-    const e2 = expr.value[i + 1];
-    const common = findCommonPrefix(e1, e2);
-    if (common) {
-      const [prefix, te1, te2] = common;
-      if (commonPrefix !== null && comparePrefix(prefix, commonPrefix)) {
-        prefixMap.get(commonPrefix).push(te2);
-      } else {
-        prefixMap.set(prefix, [te1, te2]);
-        commonPrefix = prefix;
-      }
-      if (i === expr.value.length - 2) {
-        expr.value.shift();
-      }
-      expr.value.shift();
-      i -= 1;
-    }
-  }
-  for (const [prefix, expressions] of prefixMap) {
-    const alternation = {
-      type: "alternation",
-      value: expressions
-    };
-    const newExpr = {
-      type: "concatenation",
-      value: [
-        {
-          type: "group",
-          value: alternation
-        },
-        {
-          type: "group",
-          value: prefix
-        }
-      ]
-    };
-    expr.value.push(newExpr);
-  }
-}
-const removeDirectLeftRecursionProduction = (name, expr, tailName) => {
-  const head = [];
-  const tail = [];
-  const APrime = {
-    type: "nonterminal",
-    value: tailName
-  };
-  for (let i = 0; i < expr.value.length; i++) {
-    const e = expr.value[i];
-    if (e.type === "concatenation" && e.value[0].value === name) {
-      tail.push({
-        type: "concatenation",
-        value: [...e.value.slice(1), APrime]
-      });
-    } else {
-      head.push({
-        type: "concatenation",
-        value: [e, APrime]
-      });
-    }
-  }
-  if (tail.length === 0) {
-    return [void 0, void 0];
-  }
-  tail.push({
-    type: "epsilon"
-  });
-  return [
-    {
-      type: "alternation",
-      value: head
-    },
-    {
-      type: "alternation",
-      value: tail
-    }
-  ];
-};
-function removeDirectLeftRecursion(ast) {
-  const newNodes = /* @__PURE__ */ new Map();
-  let uniqueIndex = 0;
-  for (const [name, productionRule] of ast) {
-    const { expression } = productionRule;
-    if (expression.type === "alternation") {
-      const tailName = `${name}_${uniqueIndex++}`;
-      const [head, tail] = removeDirectLeftRecursionProduction(
-        name,
-        expression,
-        tailName
-      );
-      if (head) {
-        newNodes.set(tailName, {
-          name: tailName,
-          expression: tail
-        });
-        newNodes.set(name, {
-          name,
-          expression: head,
-          comment: productionRule.comment
-        });
-      }
-    }
-  }
-  if (newNodes.size === 0) {
-    return ast;
-  }
-  for (const [name, productionRule] of newNodes) {
-    ast.set(name, productionRule);
-  }
-  for (const [name, productionRule] of ast) {
-    const { expression } = productionRule;
-    if (expression.type === "alternation") {
-      rewriteTreeLeftRecursion(name, expression);
-    }
-  }
-}
-function removeAllLeftRecursion(ast) {
-  const newAST = topologicalSort(ast);
-  removeDirectLeftRecursion(newAST);
-  return newAST;
-}
 function generateASTFromEBNF(input) {
   const parser = new EBNFGrammar().grammar().eof();
   const parsed = parser.parse(input);
@@ -2694,96 +2424,6 @@ function generateASTFromEBNF(input) {
     return acc.set(productionRule.name, productionRule);
   }, /* @__PURE__ */ new Map());
   return [parser, ast];
-}
-function generateParserFromAST(ast) {
-  function generateParser(name, expr) {
-    var _a, _b;
-    switch (expr.type) {
-      case "literal":
-        return string(expr.value);
-      case "nonterminal":
-        const l = Parser.lazy(() => {
-          return nonterminals[expr.value];
-        });
-        l.context.name = expr.value;
-        return l;
-      case "epsilon":
-        return eof().opt();
-      case "group":
-        return generateParser(name, expr.value);
-      case "regex":
-        return regex(expr.value);
-      case "optionalWhitespace":
-        return generateParser(name, expr.value).trim();
-      case "optional":
-        return generateParser(name, expr.value).opt();
-      case "many":
-        return generateParser(name, expr.value).many();
-      case "many1":
-        return generateParser(name, expr.value).many(1);
-      case "skip":
-        return generateParser(name, expr.value[0]).skip(
-          generateParser(name, expr.value[1])
-        );
-      case "next":
-        return generateParser(name, expr.value[0]).next(
-          generateParser(name, expr.value[1])
-        );
-      case "minus":
-        return generateParser(name, expr.value[0]).not(
-          generateParser(name, expr.value[1])
-        );
-      case "concatenation": {
-        const parsers2 = expr.value.map((x) => generateParser(name, x));
-        if (((_b = (_a = parsers2.at(-1)) == null ? void 0 : _a.context) == null ? void 0 : _b.name) === "eof") {
-          parsers2.pop();
-        }
-        return all(...parsers2);
-      }
-      case "alternation": {
-        return any(...expr.value.map((x) => generateParser(name, x)));
-      }
-    }
-  }
-  const nonterminals = {};
-  for (const [name, productionRule] of ast.entries()) {
-    nonterminals[name] = generateParser(name, productionRule.expression);
-  }
-  return nonterminals;
-}
-function generateParserFromEBNF(input, optimizeGraph = false) {
-  let [parser, ast] = generateASTFromEBNF(input);
-  if (optimizeGraph) {
-    ast = removeAllLeftRecursion(ast);
-  }
-  const nonterminals = generateParserFromAST(ast);
-  return [nonterminals, ast];
-}
-function locStart(node2) {
-  return 0;
-}
-function locEnd(node2) {
-  return 0;
-}
-function preprocess(text, options) {
-  return text;
-}
-function parse(text, parsers2, options) {
-  let [parser, ast] = generateASTFromEBNF(text);
-  if (parser.state.isError) {
-    throw new Error(`Error parsing EBNF: ${parser.state}`, {
-      cause: parser
-    });
-  }
-  let prettierAST;
-  if (options.sort) {
-    prettierAST = [...topologicalSort(ast).entries()].reverse();
-  } else {
-    prettierAST = [...ast.entries()];
-  }
-  return prettierAST.filter(([key]) => key).reduce((acc, [key, value]) => {
-    return acc.set(key, value);
-  }, /* @__PURE__ */ new Map());
 }
 var docExports = {};
 var doc = {
@@ -4299,198 +3939,259 @@ function printScope(node2, scope) {
   }
   return print(node2);
 }
-function printBBNF(path2, options) {
-  const ast = path2.getValue();
-  if (!ast) {
+function printExpressionToString(node2) {
+  if (!node2) {
     return "";
   }
-  options.printWidth = 66;
-  const d = docExports.builders.join(
-    docExports.builders.hardline,
-    [...ast.entries()].map(([name, rule]) => {
-      var _a, _b;
-      const { expression, comment } = rule;
-      const line = [name, " = ", printScope(expression), " ;"];
-      const above = ((_a = comment == null ? void 0 : comment.above) == null ? void 0 : _a.length) ? [docExports.builders.join(docExports.builders.hardline, comment.above), docExports.builders.hardline] : [];
-      const below = ((_b = comment == null ? void 0 : comment.below) == null ? void 0 : _b.length) ? [docExports.builders.join(docExports.builders.hardline, comment.below)] : [];
-      const commentedLine = docExports.builders.group([above, line, " ", docExports.builders.lineSuffix(below)]);
-      if (expression.type === "concatenation" || expression.type === "alternation") {
-        return docExports.builders.group([commentedLine, docExports.builders.hardline]);
-      }
-      return commentedLine;
-    })
-  );
-  return d;
-}
-const languages = [
-  {
-    name: "BBNF",
-    since: "0.1",
-    parsers: ["bbnf"],
-    extensions: [".bbnf"],
-    tmScope: "bbnf.bbnf",
-    aceMode: "text",
-    linguistLanguageId: 666,
-    vscodeLanguageIds: ["bbnf"]
+  if (typeof node2 === "string") {
+    return node2;
   }
-];
-const printers = {
-  bbnf: {
-    print: printBBNF
-  }
-};
-const parsers = {
-  bbnf: {
-    parse,
-    astFormat: "bbnf",
-    locStart,
-    locEnd,
-    preprocess
-  }
-};
-const defaultOptions = {
-  bbnf: {
+  return docExports.printer.printDocToString(printScope(node2), {
     printWidth: 66,
-    tabWidth: 4,
+    tabWidth: 2,
     useTabs: false
+  }).formatted;
+}
+function traverseAST(ast, callback) {
+  const stack = [...ast.values()].map((x) => x.expression).reverse();
+  while (stack.length > 0) {
+    const node2 = stack.pop();
+    if (!(node2 == null ? void 0 : node2.type))
+      continue;
+    callback(node2);
+    if (node2.value instanceof Array) {
+      for (let i = node2.value.length - 1; i >= 0; i--) {
+        stack.push(node2.value[i]);
+      }
+    } else {
+      stack.push(node2.value);
+    }
   }
-};
-const BBNFPlugin = {
-  languages,
-  printers,
-  parsers,
-  defaultOptions
-};
-const formatBBNF = (grammar, options) => {
-  return prettier.format(grammar, {
-    parser: "bbnf",
-    plugins: [BBNFPlugin],
-    ...defaultOptions,
-    ...options ?? {}
+}
+function findUndefinedNonterminals(ast) {
+  const undefinedNonterminals = [];
+  traverseAST(ast, (node2) => {
+    if (node2.type === "nonterminal" && !ast.has(node2.value)) {
+      undefinedNonterminals.push(node2);
+    }
   });
+  return undefinedNonterminals;
+}
+function findUnusedNonterminals(ast) {
+  const usedNonterminals = /* @__PURE__ */ new Set();
+  traverseAST(ast, (node2) => {
+    if (node2.type === "nonterminal") {
+      usedNonterminals.add(node2.value);
+    }
+  });
+  const unusedNonterminals = [];
+  for (const [name, value] of ast.entries()) {
+    if (!usedNonterminals.has(name)) {
+      unusedNonterminals.push(value);
+    }
+  }
+  return unusedNonterminals;
+}
+const diagnoseParsingError = (parser) => {
+  const state = parser.state;
+  const lineNumber = (state == null ? void 0 : state.getLineNumber()) ?? 0;
+  const columnNumber = (state == null ? void 0 : state.getColumnNumber()) ?? 0;
+  return {
+    range: {
+      start: { line: lineNumber, character: columnNumber },
+      end: { line: lineNumber, character: columnNumber + 1 }
+    },
+    message: "Error parsing BBNF, last value was: " + printExpressionToString(state == null ? void 0 : state.value),
+    severity: vscodeLanguageserver.DiagnosticSeverity.Error
+  };
 };
-const DOCUMENT_SELECTOR = {
-  language: "bbnf",
-  scheme: "file"
-};
-let LANGUAGE_CLIENT;
-const formattingProvider = vscode.languages.registerDocumentFormattingEditProvider(
-  DOCUMENT_SELECTOR,
-  {
-    provideDocumentFormattingEdits(document) {
-      const text = document.getText();
-      if (text.length === 0) {
-        return [];
-      }
-      const formatted = formatBBNF(text);
-      if (!formatted) {
-        return [];
-      }
-      return [
-        vscode.TextEdit.replace(
-          new vscode.Range(
-            document.positionAt(0),
-            document.positionAt(document.getText().length)
-          ),
-          formatted
-        )
+const diagnoseUndefinedVariables = (ast, document) => {
+  const undefinedNonterminals = findUndefinedNonterminals(ast);
+  const diagnostics = [];
+  for (const match of undefinedNonterminals) {
+    let { value: name, offset } = match;
+    offset ?? (offset = 0);
+    const diagnostic = {
+      range: {
+        start: document.positionAt(offset - name.length - 1),
+        end: document.positionAt(offset - 1)
+      },
+      code: "undefined-variable",
+      message: `Undefined variable: "${name}"`,
+      severity: vscodeLanguageserver.DiagnosticSeverity.Warning
+    };
+    if (exports.hasDiagnosticRelatedInformationCapability) {
+      diagnostic.relatedInformation = [
+        {
+          location: {
+            uri: document.uri,
+            range: Object.assign({}, diagnostic.range)
+          },
+          message: "Undefined variable"
+        }
       ];
     }
+    diagnostics.push(diagnostic);
   }
-);
-const testGrammarCache = /* @__PURE__ */ new Map();
-const testGrammar = vscode.commands.registerCommand(
-  "extension.testGrammar",
-  async () => {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      return;
+  return diagnostics;
+};
+const diagnoseUnusedVariables = (ast, document) => {
+  const unusedNonterminals = findUnusedNonterminals(ast);
+  const diagnostics = [];
+  for (const match of unusedNonterminals) {
+    let { name } = match;
+    const diagnostic = {
+      message: `Unused variable: "${name}"`,
+      code: "unused-variable",
+      severity: vscodeLanguageserver.DiagnosticSeverity.Information,
+      range: vscodeLanguageserver.Range.create(0, 0, 0, 0)
+    };
+    if (exports.hasDiagnosticRelatedInformationCapability) {
+      diagnostic.relatedInformation = [
+        {
+          location: {
+            uri: document.uri,
+            range: Object.assign({}, diagnostic.range)
+          },
+          message: "Unused variable"
+        }
+      ];
     }
-    const document = editor.document;
-    const text = document.getText();
-    if (text.length === 0) {
-      return;
-    }
-    let nonterminals, ast;
-    try {
-      [nonterminals, ast] = generateParserFromEBNF(text);
-    } catch (e) {
-      return;
-    }
-    const key = document.uri.toString();
-    if (!testGrammarCache.has(key)) {
-      testGrammarCache.set(key, {
-        nonterminal: "",
-        testString: ""
-      });
-    }
-    const cache = testGrammarCache.get(key);
-    const nonterminalString = await vscode.window.showInputBox({
-      prompt: "Enter a nonterminal to test",
-      placeHolder: "Type here...",
-      value: cache.nonterminal
-    });
-    if (!nonterminalString || !nonterminals[nonterminalString]) {
-      vscode.window.showErrorMessage(
-        `Nonterminal ${nonterminalString} not found`
-      );
-      return;
-    }
-    cache.nonterminal = nonterminalString;
-    const testString = await vscode.window.showInputBox({
-      prompt: "Enter your test string",
-      placeHolder: "Type here...",
-      value: cache.testString
-    });
-    if (!testString) {
-      vscode.window.showErrorMessage("No test string provided");
-      return;
-    }
-    cache.testString = testString;
-    const parser = nonterminals[nonterminalString];
-    const result = parser.parse(testString);
-    if (!result) {
-      vscode.window.showInformationMessage("No match X");
-    } else {
-      vscode.window.showInformationMessage(`Matched ✓: ${result}`);
-    }
+    diagnostics.push(diagnostic);
   }
-);
-function activate(context) {
-  const serverModule = context.asAbsolutePath(
-    path.join("server", "out", "server.js")
-  );
-  const serverOptions = {
-    run: { module: serverModule, transport: node.TransportKind.ipc },
-    debug: {
-      module: serverModule,
-      transport: node.TransportKind.ipc
+  return diagnostics;
+};
+const diagnose = (text, document) => {
+  var _a;
+  try {
+    let [parser, ast] = generateASTFromEBNF(text);
+    if (((_a = parser.state) == null ? void 0 : _a.isError) || !ast) {
+      return [diagnoseParsingError(parser)];
+    }
+    return [
+      ...diagnoseUndefinedVariables(ast, document),
+      ...diagnoseUnusedVariables(ast, document)
+    ].filter((x) => x !== void 0);
+  } catch (e) {
+    return [
+      {
+        range: {
+          start: { line: 0, character: 0 },
+          end: { line: 0, character: 0 }
+        },
+        message: "Error diagnosing BBNF",
+        severity: vscodeLanguageserver.DiagnosticSeverity.Error
+      }
+    ];
+  }
+};
+const connection = node.createConnection(node.ProposedFeatures.all);
+const documents = new node.TextDocuments(vscodeLanguageserverTextdocument.TextDocument);
+exports.hasConfigurationCapability = false;
+exports.hasWorkspaceFolderCapability = false;
+exports.hasDiagnosticRelatedInformationCapability = false;
+connection.onInitialize((params) => {
+  const capabilities = params.capabilities;
+  exports.hasConfigurationCapability = !!(capabilities.workspace && !!capabilities.workspace.configuration);
+  exports.hasWorkspaceFolderCapability = !!(capabilities.workspace && !!capabilities.workspace.workspaceFolders);
+  exports.hasDiagnosticRelatedInformationCapability = !!(capabilities.textDocument && capabilities.textDocument.publishDiagnostics && capabilities.textDocument.publishDiagnostics.relatedInformation);
+  const result = {
+    capabilities: {
+      textDocumentSync: node.TextDocumentSyncKind.Incremental,
+      // Tell the client that this server supports code completion.
+      completionProvider: {
+        resolveProvider: true
+      }
     }
   };
-  const clientOptions = {
-    // Register the server for plain text documents
-    documentSelector: [DOCUMENT_SELECTOR],
-    synchronize: {
-      // Notify the server about file changes to '.clientrc files contained in the workspace
-      fileEvents: vscode.workspace.createFileSystemWatcher("**/.clientrc")
-    }
-  };
-  LANGUAGE_CLIENT = new node.LanguageClient(
-    "languageServerExample",
-    "Language Server Example",
-    serverOptions,
-    clientOptions
-  );
-  LANGUAGE_CLIENT.start();
-  context.subscriptions.push(formattingProvider);
-  context.subscriptions.push(testGrammar);
-}
-function deactivate() {
-  if (!LANGUAGE_CLIENT) {
-    return void 0;
+  if (exports.hasWorkspaceFolderCapability) {
+    result.capabilities.workspace = {
+      workspaceFolders: {
+        supported: true
+      }
+    };
   }
-  return LANGUAGE_CLIENT.stop();
+  return result;
+});
+connection.onInitialized(() => {
+  if (exports.hasConfigurationCapability) {
+    connection.client.register(node.DidChangeConfigurationNotification.type, void 0);
+  }
+  if (exports.hasWorkspaceFolderCapability) {
+    connection.workspace.onDidChangeWorkspaceFolders((_event) => {
+      connection.console.log("Workspace folder change event received.");
+    });
+  }
+});
+const defaultSettings = { maxNumberOfProblems: 1e3 };
+let globalSettings = defaultSettings;
+const documentSettings = /* @__PURE__ */ new Map();
+connection.onDidChangeConfiguration((change) => {
+  if (exports.hasConfigurationCapability) {
+    documentSettings.clear();
+  } else {
+    globalSettings = change.settings.BBNF || defaultSettings;
+  }
+  documents.all().forEach(validateTextDocument);
+});
+function getDocumentSettings(resource) {
+  if (!exports.hasConfigurationCapability) {
+    return Promise.resolve(globalSettings);
+  }
+  let result = documentSettings.get(resource);
+  if (!result) {
+    result = connection.workspace.getConfiguration({
+      scopeUri: resource,
+      section: "BBNF"
+    });
+    documentSettings.set(resource, result);
+  }
+  return result;
 }
-exports.activate = activate;
-exports.deactivate = deactivate;
-//# sourceMappingURL=extension.js.map
+documents.onDidClose((e) => {
+  documentSettings.delete(e.document.uri);
+});
+documents.onDidChangeContent((change) => {
+  validateTextDocument(change.document);
+});
+async function validateTextDocument(textDocument) {
+  const settings = await getDocumentSettings(textDocument.uri);
+  const text = textDocument.getText();
+  const diagnostics = diagnose(text, textDocument).slice(
+    0,
+    settings.maxNumberOfProblems
+  );
+  connection.sendDiagnostics({ uri: textDocument.uri, diagnostics });
+}
+connection.onDidChangeWatchedFiles((_change) => {
+  connection.console.log("We received an file change event");
+});
+connection.onCompletion(
+  (_textDocumentPosition) => {
+    return [
+      {
+        label: "TypeScript",
+        kind: node.CompletionItemKind.Text,
+        data: 1
+      },
+      {
+        label: "JavaScript",
+        kind: node.CompletionItemKind.Text,
+        data: 2
+      }
+    ];
+  }
+);
+connection.onCompletionResolve((item) => {
+  if (item.data === 1) {
+    item.detail = "TypeScript details";
+    item.documentation = "TypeScript documentation";
+  } else if (item.data === 2) {
+    item.detail = "JavaScript details";
+    item.documentation = "JavaScript documentation";
+  }
+  return item;
+});
+documents.listen(connection);
+connection.listen();
+//# sourceMappingURL=server.js.map

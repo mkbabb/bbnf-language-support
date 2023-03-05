@@ -1,236 +1,169 @@
-import { Parser } from "@mkbabb/parse-that";
-import { generateASTFromEBNF, generateParserFromEBNF } from "@mkbabb/parse-that/ebnf";
+import path from "path";
+import vscode from "vscode";
+import { formatBBNF } from "../../src/prettier-plugin-bbnf";
 
-import * as vscode from "vscode";
+import {
+    LanguageClient,
+    LanguageClientOptions,
+    ServerOptions,
+    TransportKind,
+} from "vscode-languageclient/node";
+import { generateParserFromEBNF } from "@mkbabb/parse-that/ebnf";
 
-import { formatEBNF } from ".";
-import { findUndefinedNonterminals, findUnusedTerminals } from "./parser";
-import { printExpressionToString } from "./printer";
+const DOCUMENT_SELECTOR = {
+    language: "bbnf",
+    scheme: "file",
+} as vscode.DocumentSelector;
+
+let LANGUAGE_CLIENT: LanguageClient;
+
+const formattingProvider = vscode.languages.registerDocumentFormattingEditProvider(
+    DOCUMENT_SELECTOR,
+    {
+        provideDocumentFormattingEdits(
+            document: vscode.TextDocument
+        ): vscode.TextEdit[] {
+            const text = document.getText();
+            if (text.length === 0) {
+                return [];
+            }
+
+            const formatted = formatBBNF(text);
+            if (!formatted) {
+                return [];
+            }
+
+            return [
+                vscode.TextEdit.replace(
+                    new vscode.Range(
+                        document.positionAt(0),
+                        document.positionAt(document.getText().length)
+                    ),
+                    formatted
+                ),
+            ];
+        },
+    }
+);
 
 type TestGrammarCache = {
     nonterminal: string;
     testString: string;
 };
+const testGrammarCache = new Map<string, TestGrammarCache>();
 
-const reportParsingError = (
-    parser: Parser<any>,
-    document: vscode.TextDocument,
-    diagnosticCollection: vscode.DiagnosticCollection
-) => {
-    const state = parser.state;
-
-    const lineNumber = state.getLineNumber();
-    const columnNumber = state.getColumnNumber();
-
-    const diagnostic = new vscode.Diagnostic(
-        new vscode.Range(lineNumber, columnNumber, lineNumber, columnNumber + 1),
-        "Error parsing BBNF, last value was: " + printExpressionToString(state?.value),
-        vscode.DiagnosticSeverity.Error
-    );
-
-    diagnosticCollection.set(document.uri, [
-        ...(diagnosticCollection.get(document.uri) ?? []),
-        diagnostic,
-    ]);
-};
-
-const reportUndefinedNonterminals = (
-    text: string,
-    document: vscode.TextDocument,
-    diagnosticCollection: vscode.DiagnosticCollection
-) => {
-    const [parser, ast] = generateASTFromEBNF(text);
-
-    if (parser.state.isError) {
-        reportParsingError(parser, document, diagnosticCollection);
-        return;
-    }
-
-    const undefinedNonterminals = findUndefinedNonterminals(ast);
-
-    for (const match of undefinedNonterminals) {
-        const { value, offset } = match;
-
-        const diagnostic = new vscode.Diagnostic(
-            new vscode.Range(
-                document.positionAt(offset - value.length - 1),
-                document.positionAt(offset - 1)
-            ),
-            `Undefined variable: ${value}`,
-            vscode.DiagnosticSeverity.Error
-        );
-
-        diagnosticCollection.set(document.uri, [
-            ...(diagnosticCollection.get(document.uri) ?? []),
-            diagnostic,
-        ]);
-    }
-};
-
-const reportUnusedTerminals = (
-    text: string,
-    document: vscode.TextDocument,
-    diagnosticCollection: vscode.DiagnosticCollection
-) => {
-    const [parser, ast] = generateASTFromEBNF(text);
-
-    if (parser.state.isError) {
-        reportParsingError(parser, document, diagnosticCollection);
-        return;
-    }
-
-    const unusedTerminals = findUnusedTerminals(ast);
-
-    for (const [name, match] of unusedTerminals) {
-        const { offset } = match;
-
-        const diagnostic = new vscode.Diagnostic(
-            new vscode.Range(
-                document.positionAt(offset - name.length - 1),
-                document.positionAt(offset - 1)
-            ),
-            `Unused variable: ${name}`,
-            vscode.DiagnosticSeverity.Warning
-        );
-
-        diagnosticCollection.set(document.uri, [
-            ...(diagnosticCollection.get(document.uri) ?? []),
-            diagnostic,
-        ]);
-    }
-};
-
-export async function activate(context: vscode.ExtensionContext) {
-    const diagnosticCollection = vscode.languages.createDiagnosticCollection("bbnf");
-    diagnosticCollection.clear();
-
-    const BBNFFileSelector = { language: "bbnf", scheme: "file" };
-
-    const report = (document, text) => {
-        diagnosticCollection.clear();
-
-        if (document.languageId !== "bbnf") {
+const testGrammar = vscode.commands.registerCommand(
+    "extension.testGrammar",
+    async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
             return;
         }
+        const document = editor.document;
+        const text = document.getText();
+
         if (text.length === 0) {
             return;
         }
-        reportUndefinedNonterminals(text, document, diagnosticCollection);
-        reportUnusedTerminals(text, document, diagnosticCollection);
+
+        let nonterminals, ast;
+        try {
+            [nonterminals, ast] = generateParserFromEBNF(text);
+        } catch (e) {
+            return;
+        }
+
+        const key = document.uri.toString();
+        if (!testGrammarCache.has(key)) {
+            testGrammarCache.set(key, {
+                nonterminal: "",
+                testString: "",
+            });
+        }
+        const cache = testGrammarCache.get(key)!;
+
+        const nonterminalString = await vscode.window.showInputBox({
+            prompt: "Enter a nonterminal to test",
+            placeHolder: "Type here...",
+            value: cache.nonterminal,
+        });
+
+        if (!nonterminalString || !nonterminals[nonterminalString]) {
+            vscode.window.showErrorMessage(
+                `Nonterminal ${nonterminalString} not found`
+            );
+            return;
+        }
+
+        cache.nonterminal = nonterminalString;
+
+        const testString = await vscode.window.showInputBox({
+            prompt: "Enter your test string",
+            placeHolder: "Type here...",
+            value: cache.testString,
+        });
+
+        if (!testString) {
+            vscode.window.showErrorMessage("No test string provided");
+            return;
+        }
+        cache.testString = testString;
+
+        const parser = nonterminals[nonterminalString];
+        const result = parser.parse(testString);
+
+        if (!result) {
+            vscode.window.showInformationMessage("No match X");
+        } else {
+            vscode.window.showInformationMessage(`Matched ✓: ${result}`);
+        }
+    }
+);
+
+export function activate(context: vscode.ExtensionContext) {
+    // The server is implemented in node
+    const serverModule = context.asAbsolutePath(
+        path.join("server", "out", "server.js")
+    );
+
+    // If the extension is launched in debug mode then the debug server options are used
+    // Otherwise the run options are used
+    const serverOptions: ServerOptions = {
+        run: { module: serverModule, transport: TransportKind.ipc },
+        debug: {
+            module: serverModule,
+            transport: TransportKind.ipc,
+        },
     };
 
-    const documentChangeDisposable = vscode.workspace.onDidChangeTextDocument(
-        (event) => {
-            const document = event.document;
-            const text = document.getText();
-            report(document, text);
-        }
+    // Options to control the language client
+    const clientOptions: LanguageClientOptions = {
+        // Register the server for plain text documents
+        documentSelector: [DOCUMENT_SELECTOR] as any,
+        synchronize: {
+            // Notify the server about file changes to '.clientrc files contained in the workspace
+            fileEvents: vscode.workspace.createFileSystemWatcher("**/.clientrc"),
+        },
+    };
+
+    // Create the language client and start the client.
+    LANGUAGE_CLIENT = new LanguageClient(
+        "languageServerExample",
+        "Language Server Example",
+        serverOptions,
+        clientOptions
     );
-    context.subscriptions.push(documentChangeDisposable);
 
-    const documentOpenDisposable = vscode.workspace.onDidOpenTextDocument(
-        (document) => {
-            const text = document.getText();
-            report(document, text);
-        }
-    );
-    context.subscriptions.push(documentOpenDisposable);
+    // Start the client. This will also launch the server
+    LANGUAGE_CLIENT.start();
 
-    const formatBBNF = vscode.languages.registerDocumentFormattingEditProvider(
-        BBNFFileSelector,
-        {
-            provideDocumentFormattingEdits(
-                document: vscode.TextDocument
-            ): vscode.TextEdit[] {
-                const text = document.getText();
-                if (text.length === 0) {
-                    return [];
-                }
-
-                const formatted = formatEBNF(text);
-                if (!formatted) {
-                    return [];
-                }
-
-                report(document, formatted);
-
-                return [
-                    vscode.TextEdit.replace(
-                        new vscode.Range(
-                            document.positionAt(0),
-                            document.positionAt(document.getText().length)
-                        ),
-                        formatted
-                    ),
-                ];
-            },
-        }
-    );
-    context.subscriptions.push(formatBBNF);
-
-    // create a cache for each document:
-    const testGrammarCache = new Map<string, TestGrammarCache>();
-
-    const testGrammar = vscode.commands.registerCommand(
-        "extension.testGrammar",
-        async () => {
-            const editor = vscode.window.activeTextEditor;
-            if (!editor) {
-                return;
-            }
-            const document = editor.document;
-            const text = document.getText();
-
-            if (text.length === 0) {
-                return;
-            }
-
-            let nonterminals;
-            let ast;
-            try {
-                [nonterminals, ast] = generateParserFromEBNF(text);
-            } catch (e) {
-                return;
-            }
-
-            const key = document.uri.toString();
-            if (!testGrammarCache.has(key)) {
-                testGrammarCache.set(key, {
-                    nonterminal: "",
-                    testString: "",
-                });
-            }
-            const cache = testGrammarCache.get(key);
-
-            const nonterminalString = await vscode.window.showInputBox({
-                prompt: "Enter a nonterminal to test",
-                placeHolder: "Type here...",
-                value: cache.nonterminal,
-            });
-            if (!nonterminalString) {
-                return;
-            }
-            cache.nonterminal = nonterminalString;
-
-            const testString = await vscode.window.showInputBox({
-                prompt: "Enter your test string",
-                placeHolder: "Type here...",
-                value: cache.testString,
-            });
-
-            if (!testString) {
-                return;
-            }
-            cache.testString = testString;
-
-            const parser = nonterminals[nonterminalString];
-            const result = parser.parse(testString);
-            if (!result) {
-                vscode.window.showInformationMessage("No match");
-            } else {
-                vscode.window.showInformationMessage(`Matched: ${result}`);
-            }
-        }
-    );
+    context.subscriptions.push(formattingProvider);
     context.subscriptions.push(testGrammar);
+}
+
+export function deactivate(): Thenable<void> | undefined {
+    if (!LANGUAGE_CLIENT) {
+        return undefined;
+    }
+    return LANGUAGE_CLIENT.stop();
 }

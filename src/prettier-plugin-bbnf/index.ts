@@ -1,31 +1,31 @@
-import { locStart, parse, preprocess, locEnd } from "./parser";
-import { EBNFPrint } from "./printer";
+import { locStart, parse, preprocess, locEnd } from "../utils/parser";
+import { printBBNF } from "../utils/printer";
 
-import prettier, { Plugin, doc } from "prettier";
+import prettier, { Plugin } from "prettier";
 
 export const languages = [
     {
-        name: "EBNF",
+        name: "BBNF",
         since: "0.1",
-        parsers: ["ebnf"],
-        extensions: [".ebnf"],
-        tmScope: "ebnf.ebnf",
+        parsers: ["bbnf"],
+        extensions: [".bbnf"],
+        tmScope: "bbnf.bbnf",
         aceMode: "text",
         linguistLanguageId: 666,
-        vscodeLanguageIds: ["ebnf"],
+        vscodeLanguageIds: ["bbnf"],
     },
 ];
 
 const printers = {
-    ebnf: {
-        print: EBNFPrint,
+    bbnf: {
+        print: printBBNF,
     },
 };
 
 const parsers = {
-    ebnf: {
+    bbnf: {
         parse,
-        astFormat: "ebnf",
+        astFormat: "bbnf",
         locStart,
         locEnd,
         preprocess,
@@ -33,24 +33,24 @@ const parsers = {
 };
 
 const defaultOptions = {
-    ebnf: {
+    bbnf: {
         printWidth: 66,
         tabWidth: 4,
         useTabs: false,
     },
 };
 
-export const EBNFPlugin = {
+export const BBNFPlugin = {
     languages,
     printers,
     parsers,
     defaultOptions,
 } as Plugin;
 
-export const formatEBNF = (grammar: string, options?) => {
+export const formatBBNF = (grammar: string, options?) => {
     return prettier.format(grammar, {
-        parser: "ebnf",
-        plugins: [EBNFPlugin],
+        parser: "bbnf",
+        plugins: [BBNFPlugin],
 
         ...defaultOptions,
         ...(options ?? {}),

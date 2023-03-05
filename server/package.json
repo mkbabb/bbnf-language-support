@@ -1,5 +1,5 @@
 {
-    "name": "@mkbabb/bbnf-language-support-client",
+    "name": "@mkbabb/bbnf-language-support-server",
     "version": "1.0.0",
     "repository": {
         "type": "git",
@@ -8,14 +8,14 @@
     "author": "@mkbabb",
     "publisher": "mkbabb",
     "engines": {
-        "vscode": "^1.6.0"
+        "node": "*"
     },
-    "main": "./out/extension",
     "dependencies": {
-        "vscode-languageclient": "^8.1.0"
+        "vscode-languageserver": "^8.1.0",
+        "vscode-languageserver-textdocument": "^1.0.8"
     },
     "devDependencies": {
         "@types/node": "^18.14.2",
-        "@types/vscode": "^1.76.0"
+        "@types/prettier": "^2.7.2"
     }
 }

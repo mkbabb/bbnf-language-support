@@ -1,6 +1,6 @@
 import { builders as b, printer } from "prettier/doc";
 import { Expression, ProductionRule } from "@mkbabb/parse-that/ebnf";
-import { AST, AstPath, Doc, Options, doc, util } from "prettier";
+import { AST, AstPath, Doc, Options } from "prettier";
 
 function printScope(node: Expression, scope?: AST): Doc {
     function print(node: Expression): Doc {
@@ -92,7 +92,7 @@ function printScope(node: Expression, scope?: AST): Doc {
     return print(node);
 }
 
-export function EBNFPrint(path: AstPath, options: Options): Doc {
+export function printBBNF(path: AstPath, options: Options): Doc {
     const ast = path.getValue() as AST;
     if (!ast) {
         return "";
@@ -129,6 +129,14 @@ export function EBNFPrint(path: AstPath, options: Options): Doc {
 }
 
 export function printExpressionToString(node: Expression): string {
+    if (!node) {
+        return "";
+    }
+
+    if (typeof node === "string") {
+        return node;
+    }
+
     return printer.printDocToString(printScope(node), {
         printWidth: 66,
         tabWidth: 2,

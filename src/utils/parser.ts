@@ -2,6 +2,7 @@ import {
     Expression,
     generateASTFromEBNF,
     Nonterminal,
+    ProductionRule,
     removeAllLeftRecursion,
     topologicalSort,
 } from "@mkbabb/parse-that/ebnf";
@@ -16,12 +17,15 @@ export function preprocess(text: string, options: object): string {
     return text;
 }
 
-export function traverseAST(ast: Map<string, any>, callback: (node: any) => void) {
+export function traverseAST(
+    ast: Map<string, any>,
+    callback: (node: Expression) => void
+) {
     const stack: Expression[] = [...ast.values()].map((x) => x.expression).reverse();
 
     while (stack.length > 0) {
         const node = stack.pop();
-        if (!node) continue;
+        if (!node?.type) continue;
 
         callback(node);
 
@@ -46,15 +50,21 @@ export function findUndefinedNonterminals(ast: Map<string, any>) {
     return undefinedNonterminals;
 }
 
-export function findUnusedTerminals(ast: Map<string, any>) {
-    const used = new Set();
+export function findUnusedNonterminals(ast: Map<string, any>) {
+    const usedNonterminals = new Set();
 
     traverseAST(ast, (node) => {
-        if (node.type === "noneterminal") {
-            used.add(node.value);
+        if (node.type === "nonterminal") {
+            usedNonterminals.add(node.value);
         }
     });
-    return [...ast.entries()].filter(([name]) => !used.has(name));
+    const unusedNonterminals = [] as ProductionRule[];
+    for (const [name, value] of ast.entries()) {
+        if (!usedNonterminals.has(name)) {
+            unusedNonterminals.push(value);
+        }
+    }
+    return unusedNonterminals;
 }
 
 export function parse(text: string, parsers: object, options: object) {
@@ -67,7 +77,6 @@ export function parse(text: string, parsers: object, options: object) {
     }
 
     // ast = removeAllLeftRecursion(ast);
-
     let prettierAST;
     // @ts-ignore
     if (options.sort) {

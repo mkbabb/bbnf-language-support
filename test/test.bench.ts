@@ -1,17 +1,17 @@
 import { test, expect, describe, it, bench, BenchOptions } from "vitest";
 import fs from "fs";
-import { formatEBNF } from "../src";
+import { formatBBNF } from "../src/prettier-plugin-bbnf";
 
-const input = fs.readFileSync("./grammar/eebnf.ebnf", "utf8");
+const input = fs.readFileSync("./grammar/bbnf.bbnf", "utf8");
 const options = {
     iterations: 100,
 } as BenchOptions;
 
-describe("Prettier EBNF", () => {
+describe("Prettier BBNF", () => {
     bench(
         "format",
         () => {
-            formatEBNF(input);
+            formatBBNF(input);
         },
         options
     );

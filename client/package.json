@@ -1,12 +1,5 @@
 {
-    "name": "@mkbabb/bbnf-language-support-client",
-    "version": "1.0.0",
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/mkbabb/bbnf-language-support"
-    },
-    "author": "@mkbabb",
-    "publisher": "mkbabb",
+    "name": "bbnf-language-support-client",
     "engines": {
         "vscode": "^1.6.0"
     },

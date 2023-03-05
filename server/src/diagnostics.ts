@@ -100,7 +100,7 @@ export const diagnoseUnusedVariables = (ast: AST, document: TextDocument) => {
 
 export const diagnose = (text: string, document: TextDocument): Diagnostic[] => {
     try {
-        let [parser, ast] = generateASTFromEBNF(text);
+        let [parser, ast] =generateASTFromEBNF(text);
 
         if (parser.state?.isError || !ast) {
             return [diagnoseParsingError(parser)];
@@ -110,6 +110,10 @@ export const diagnose = (text: string, document: TextDocument): Diagnostic[] => 
             ...diagnoseUnusedVariables(ast, document),
         ].filter((x) => x !== undefined);
     } catch (e) {
+        const q = e;
+
+        console.log(q);
+
         return [
             {
                 range: {

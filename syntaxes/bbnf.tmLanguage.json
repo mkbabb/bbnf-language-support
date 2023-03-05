@@ -1,5 +1,5 @@
 {
-    "name": "Babb-Backus-Naur Form",
+    "name": "Better Backus-Naur Form",
     "scopeName": "source.bbnf",
     "patterns": [
         {
@@ -75,7 +75,7 @@
                     "include": "#manyGroup"
                 },
                 {
-                    "include": "#literal"
+                    "include": "#string"
                 },
                 {
                     "include": "#regex"
@@ -143,8 +143,8 @@
                 }
             ]
         },
-        "literal": {
-            "name": "meta.literal.bbnf",
+        "string": {
+            "name": "meta.string.bbnf",
             "patterns": [
                 {
                     "name": "string.quoted.double.bbnf",

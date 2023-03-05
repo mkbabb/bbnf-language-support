@@ -1,0 +1,50 @@
+{
+    "fileTypes": ["bbnf"],
+    "injectionSelector": "L:source -comment -string",
+    "patterns": [
+        {
+            "begin": "(?i)(\\s*\\/\\*\\s?(css)\\s?\\*\\/\\s*)(\")",
+            "beginCaptures": {
+                "1": {
+                    "name": "comment.block"
+                }
+            },
+            "end": "(\")",
+            "patterns": [
+                {
+                    "include": "source.css"
+                }
+            ]
+        },
+        {
+            "begin": "(?i)(\\s*\\/\\*\\s?(bbnf)\\s?\\*\\/\\s*)(\")",
+            "beginCaptures": {
+                "1": {
+                    "name": "comment.block"
+                }
+            },
+            "end": "(\")",
+            "patterns": [
+                {
+                    "include": "source.bbnf"
+                }
+            ]
+        },
+        {
+            "begin": "(?i)(\\s*\\/\\*\\s?(js)\\s?\\*\\/\\s*)(\")",
+            "beginCaptures": {
+                "1": {
+                    "name": "comment.block"
+                }
+            },
+            "end": "(\")",
+            "patterns": [
+                {
+                    "include": "source.js"
+                }
+            ]
+        }
+    ],
+
+    "scopeName": "inline.inlineLanguageString"
+}

@@ -69,6 +69,13 @@
                 "language": "bbnf",
                 "scopeName": "source.bbnf",
                 "path": "./syntaxes/bbnf.tmLanguage.json"
+            },
+            {
+                "injectTo": [
+                    "source.bbnf"
+                ],
+                "scopeName": "inline.inlineLanguageString",
+                "path": "./syntaxes/inlineLanguageString.tmLanguage.json"
             }
         ],
         "commands": [

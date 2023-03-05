@@ -40,14 +40,18 @@ export function traverseAST(
 }
 
 export function findUndefinedNonterminals(ast: Map<string, any>) {
-    const undefinedNonterminals = [] as Nonterminal[];
+    const undefinedNonterminals = new Map() as Map<string, Nonterminal>;
 
     traverseAST(ast, (node) => {
-        if (node.type === "nonterminal" && !ast.has(node.value)) {
-            undefinedNonterminals.push(node);
+        if (
+            node.type === "nonterminal" &&
+            !ast.has(node.value) &&
+            !undefinedNonterminals.has(node.value)
+        ) {
+            undefinedNonterminals.set(node.value, node);
         }
     });
-    return undefinedNonterminals;
+    return [...undefinedNonterminals.values()];
 }
 
 export function findUnusedNonterminals(ast: Map<string, any>) {

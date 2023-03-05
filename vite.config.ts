@@ -2,9 +2,9 @@ import { defineConfig, LibraryOptions, UserConfig } from "vite";
 import commonjs from "@rollup/plugin-commonjs";
 
 const EXTERNAL_DEPS = [
-    "path",
+    // "path",
     "vscode",
-    // "vscode-languageclient/node",
+    "vscode-languageclient/node",
     "vscode-languageserver/node",
     "vscode-languageserver-textdocument",
 ];

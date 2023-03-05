@@ -1,7 +1,7 @@
 {
     "name": "bbnf-language-support",
     "displayName": "BBNF Language Support",
-    "version": "0.0.8",
+    "version": "0.0.9",
     "description": "Formatting, intellisense, and syntax highlighting for BBNF lang.",
     "icon": "icons/bbnf.png",
     "repository": {

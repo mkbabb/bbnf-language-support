@@ -27,7 +27,7 @@
         },
         "lineComment": {
             "name": "comment.line.number",
-            "match": "\\/\\/.*$"
+            "match": "\\/\\/.*"
         },
 
         "terminator": {
@@ -148,17 +148,21 @@
             "patterns": [
                 {
                     "name": "string.quoted.double.bbnf",
-                    "match": "\"[^\"]*\""
+                    "match": "\"(\\\\.|[^\"\\\\])*\""
                 },
                 {
                     "name": "string.quoted.single.bbnf",
-                    "match": "'[^']*'"
+                    "match": "'(\\\\.|[^'\\\\])*'"
+                },
+                {
+                    "name": "string.quoted.backtick.bbnf",
+                    "match": "`(\\\\.|[^`\\\\])*`"
                 }
             ]
         },
         "regex": {
             "name": "string.regex.bbnf",
-            "match": "\\/([^\\/]+)\\/([gimuy]*)",
+            "match": "\\/(\\\\.|[^\/])+/([gimuy]*)",
             "captures": {
                 "0": { "name": "punctuation.definition.string.begin.regex.bbnf" },
                 "1": { "name": "string.regex.bbnf" },
@@ -175,7 +179,7 @@
         },
         "identifier": {
             "name": "meta.identifier.bbnf",
-            "match": "([A-Za-z0-9_][A-Za-z0-9_]*)",
+            "match": "([A-Za-z0-9_][A-Za-z0-9_-]*)",
             "captures": {
                 "1": {
                     "name": "entity.name.function.bbnf"

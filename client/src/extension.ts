@@ -1,9 +1,7 @@
 import path from "path";
 import vscode from "vscode";
-import { formatBBNF } from "../../src/prettier-plugin-bbnf";
 
 import {
-    DocumentRangeFormattingRequest,
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,

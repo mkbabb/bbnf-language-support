@@ -55,6 +55,28 @@ connection.onInitialize((params: InitializeParams) => {
                 resolveProvider: true,
             },
             documentFormattingProvider: true,
+            semanticTokensProvider: {
+                legend: {
+                    tokenModifiers: [
+                        "declaration",
+                        "documentation",
+                        "readonly",
+                        "static",
+                        "abstract",
+                        "deprecated",
+                        "modification",
+                        "async",
+                    ],
+                    tokenTypes: [
+                        "comment",
+                        "keyword",
+                        "string",
+                        "regexp",
+                        "number",
+                        "operator",
+                    ],
+                },
+            },
         },
     };
     if (hasWorkspaceFolderCapability) {
@@ -115,6 +137,7 @@ function getDocumentSettings(resource: string): Thenable<ExampleSettings> {
             scopeUri: resource,
             section: "BBNF",
         });
+
         documentSettings.set(resource, result);
     }
     return result;

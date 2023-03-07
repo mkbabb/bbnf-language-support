@@ -1,6 +1,6 @@
 import { builders as b, printer } from "prettier/doc";
-import { Expression, ProductionRule } from "@mkbabb/parse-that/ebnf";
-import { AST, AstPath, Doc, Options } from "prettier";
+import { AstPath, Doc, Options } from "prettier";
+import { Expression, ProductionRule, AST } from "@mkbabb/parse-that/bbnf";
 
 function printScope(node: Expression, scope?: AST): Doc {
     function print(node: Expression): Doc {
@@ -81,8 +81,12 @@ function printScope(node: Expression, scope?: AST): Doc {
 
         const s = innerPrint();
         if (node.comment) {
-            const left = node.comment.left.length ? node.comment.left + " " : "";
-            const right = node.comment.right.length ? " " + node.comment.right : "";
+            let left = node.comment.left.map((v) => v.value).join(" ");
+            let right = node.comment.right.map((v) => v.value).join(" ");
+
+            left = left ? left + " " : left;
+            right = right ? " " + right : right;
+
             return b.group([left, s, right]);
         }
 
@@ -92,25 +96,30 @@ function printScope(node: Expression, scope?: AST): Doc {
     return print(node);
 }
 
-export function printBBNF(path: AstPath, options: Options): Doc {
-    const ast = path.getValue() as AST;
-    if (!ast) {
-        return "";
-    }
-
-    options.printWidth = 66;
-
+export function printBBNFAST(ast: AST): Doc {
     const d = b.join(
         b.hardline,
         [...ast.entries()].map(([name, rule]: [string, ProductionRule]) => {
             const { expression, comment } = rule;
 
             const line = [name, " = ", printScope(expression, ast), " ;"];
+
             const above = comment?.above?.length
-                ? [b.join(b.hardline, comment.above), b.hardline]
+                ? [
+                      b.join(
+                          b.hardline,
+                          comment.above.map((v) => v.value)
+                      ),
+                      b.hardline,
+                  ]
                 : [];
             const below = comment?.below?.length
-                ? [b.join(b.hardline, comment.below)]
+                ? [
+                      b.join(
+                          b.hardline,
+                          comment.below.map((v) => v.value)
+                      ),
+                  ]
                 : [];
 
             const commentedLine = b.group([above, line, " ", b.lineSuffix(below)]);
@@ -126,6 +135,17 @@ export function printBBNF(path: AstPath, options: Options): Doc {
     );
 
     return d;
+}
+
+export function printBBNF(path: AstPath, options: Options): Doc {
+    const ast = path.getValue() as AST;
+    if (!ast) {
+        return "";
+    }
+
+    options.printWidth = 66;
+
+    return printBBNFAST(ast);
 }
 
 export function printExpressionToString(node: Expression): string {

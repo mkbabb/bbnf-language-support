@@ -1,11 +1,12 @@
 import {
     Expression,
-    generateASTFromEBNF,
+    BBNFToAST,
     Nonterminal,
     ProductionRule,
     removeAllLeftRecursion,
     topologicalSort,
-} from "@mkbabb/parse-that/ebnf";
+    AST,
+} from "@mkbabb/parse-that/bbnf";
 
 export function locStart(node: object): number {
     return 0;
@@ -39,7 +40,7 @@ export function traverseAST(
     }
 }
 
-export function findUndefinedNonterminals(ast: Map<string, any>) {
+export function findUndefinedNonterminals(ast: AST) {
     const undefinedNonterminals = new Map() as Map<string, Nonterminal>;
 
     traverseAST(ast, (node) => {
@@ -51,30 +52,32 @@ export function findUndefinedNonterminals(ast: Map<string, any>) {
             undefinedNonterminals.set(node.value, node);
         }
     });
-    return [...undefinedNonterminals.values()];
+
+    return undefinedNonterminals;
 }
 
-export function findUnusedNonterminals(ast: Map<string, any>) {
-    const usedNonterminals = new Set();
+export function findUnusedNonterminals(ast: AST) {
+    const usedNonterminals = new Map() as Map<string, Nonterminal>;
 
     traverseAST(ast, (node) => {
-        if (node.type === "nonterminal") {
-            usedNonterminals.add(node.value);
+        if (node.type === "nonterminal" && !usedNonterminals.has(node.value)) {
+            usedNonterminals.set(node.value, node);
         }
     });
-    const unusedNonterminals = [] as ProductionRule[];
+
     for (const [name, value] of ast.entries()) {
-        if (!usedNonterminals.has(name)) {
-            unusedNonterminals.push(value);
+        if (usedNonterminals.has(name)) {
+            usedNonterminals.delete(name);
         }
     }
-    return unusedNonterminals;
+    return usedNonterminals;
 }
 
 export function parse(text: string, parsers: object, options: object) {
-    let [parser, ast] = generateASTFromEBNF(text);
+    let [parser, ast] = BBNFToAST(text);
 
     if (parser.state.isError) {
+        // @ts-ignore
         throw new Error(`Error parsing EBNF: ${parser.state}`, {
             cause: parser,
         });

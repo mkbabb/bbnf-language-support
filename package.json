@@ -93,8 +93,8 @@
     },
     "dependencies": {
         "@mkbabb/parse-that": "github:mkbabb/parse-that",
-        "prettier": "^2.8.4",
-        "chalk": "^4.1.2"
+        "chalk": "^4.1.2",
+        "prettier": "^2.8.4"
     },
     "devDependencies": {
         "@rollup/plugin-commonjs": "^24.0.1",

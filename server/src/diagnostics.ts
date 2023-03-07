@@ -1,5 +1,5 @@
 import { Parser } from "@mkbabb/parse-that";
-import { AST, generateASTFromEBNF } from "@mkbabb/parse-that/ebnf";
+import { AST, BBNFToAST } from "@mkbabb/parse-that/bbnf";
 
 import { printExpressionToString } from "../../src/utils/printer";
 import {
@@ -35,14 +35,15 @@ export const diagnoseUndefinedVariables = (ast: AST, document: TextDocument) => 
 
     const diagnostics = [] as Diagnostic[];
 
-    for (const match of undefinedNonterminals) {
-        let { value: name, offset } = match;
-        offset ??= 0;
+    for (const [name, match] of undefinedNonterminals) {
+        let { range } = match;
+        const start = range?.start ?? 0;
+        const end = range?.end ?? 0;
 
         const diagnostic = {
             range: {
-                start: document.positionAt(offset - name.length - 1),
-                end: document.positionAt(offset - 1),
+                start: document.positionAt(start),
+                end: document.positionAt(end),
             },
             code: "undefined-variable",
             message: `Undefined variable: "${name}"`,
@@ -71,14 +72,19 @@ export const diagnoseUnusedVariables = (ast: AST, document: TextDocument) => {
     const unusedNonterminals = findUnusedNonterminals(ast);
     const diagnostics = [] as Diagnostic[];
 
-    for (const match of unusedNonterminals) {
-        let { name } = match;
+    for (const [name, match] of unusedNonterminals) {
+        let { range } = match;
+        const start = range?.start ?? 0;
+        const end = range?.end ?? 0;
 
         const diagnostic = {
             message: `Unused variable: "${name}"`,
             code: "unused-variable",
             severity: DiagnosticSeverity.Information,
-            range: Range.create(0, 0, 0, 0),
+            range: {
+                start: document.positionAt(start),
+                end: document.positionAt(end),
+            },
         } as Diagnostic;
 
         if (hasDiagnosticRelatedInformationCapability) {
@@ -100,7 +106,7 @@ export const diagnoseUnusedVariables = (ast: AST, document: TextDocument) => {
 
 export const diagnose = (text: string, document: TextDocument): Diagnostic[] => {
     try {
-        let [parser, ast] =generateASTFromEBNF(text);
+        let [parser, ast] = BBNFToAST(text);
 
         if (parser.state?.isError || !ast) {
             return [diagnoseParsingError(parser)];

@@ -7,7 +7,7 @@ import {
     ServerOptions,
     TransportKind,
 } from "vscode-languageclient/node";
-import { generateParserFromEBNF } from "@mkbabb/parse-that/ebnf";
+import { BBNFToParser } from "@mkbabb/parse-that/bbnf";
 
 const DOCUMENT_SELECTOR = {
     language: "bbnf",
@@ -38,7 +38,7 @@ const testGrammar = vscode.commands.registerCommand(
 
         let nonterminals, ast;
         try {
-            [nonterminals, ast] = generateParserFromEBNF(text);
+            [nonterminals, ast] = BBNFToParser(text);
         } catch (e) {
             return;
         }

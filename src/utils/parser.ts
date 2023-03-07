@@ -40,10 +40,9 @@ export function traverseAST(
     }
 }
 
-export function findUndefinedNonterminals(ast: AST) {
+export function analyzeNonterminals(ast: AST) {
     const undefinedNonterminals = new Map() as Map<string, Nonterminal>;
-
-    traverseAST(ast, (node) => {
+    const findUndefinedNonterminals = (node: Expression) => {
         if (
             node.type === "nonterminal" &&
             !ast.has(node.value) &&
@@ -51,26 +50,32 @@ export function findUndefinedNonterminals(ast: AST) {
         ) {
             undefinedNonterminals.set(node.value, node);
         }
-    });
+    };
 
-    return undefinedNonterminals;
-}
-
-export function findUnusedNonterminals(ast: AST) {
     const usedNonterminals = new Map() as Map<string, Nonterminal>;
-
-    traverseAST(ast, (node) => {
+    const findUnusedNonterminals = (node: Expression) => {
         if (node.type === "nonterminal" && !usedNonterminals.has(node.value)) {
             usedNonterminals.set(node.value, node);
         }
+    };
+
+    traverseAST(ast, (node) => {
+        findUndefinedNonterminals(node);
+        findUnusedNonterminals(node);
     });
 
-    for (const [name, value] of ast.entries()) {
-        if (usedNonterminals.has(name)) {
-            usedNonterminals.delete(name);
+    const unusedNonterminals = new Map() as Map<string, Nonterminal>;
+
+    for (const [name, expression] of ast.entries()) {
+        if (!usedNonterminals.has(name)) {
+            unusedNonterminals.set(name, expression.name);
         }
     }
-    return usedNonterminals;
+
+    return {
+        undefinedNonterminals,
+        unusedNonterminals,
+    };
 }
 
 export function parse(text: string, parsers: object, options: object) {

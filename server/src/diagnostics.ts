@@ -1,11 +1,8 @@
 import { Parser } from "@mkbabb/parse-that";
-import { AST, BBNFToAST } from "@mkbabb/parse-that/bbnf";
+import { AST, BBNFToAST, Nonterminal } from "@mkbabb/parse-that/bbnf";
 
 import { printExpressionToString } from "../../src/utils/printer";
-import {
-    findUndefinedNonterminals,
-    findUnusedNonterminals,
-} from "../../src/utils/parser";
+import { analyzeNonterminals } from "../../src/utils/parser";
 
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { Diagnostic, DiagnosticSeverity, Range } from "vscode-languageserver";
@@ -30,9 +27,10 @@ export const diagnoseParsingError = (parser: Parser<any>) => {
     } as Diagnostic;
 };
 
-export const diagnoseUndefinedVariables = (ast: AST, document: TextDocument) => {
-    const undefinedNonterminals = findUndefinedNonterminals(ast);
-
+export const diagnoseUndefinedVariables = (
+    undefinedNonterminals: Map<string, Nonterminal>,
+    document: TextDocument
+) => {
     const diagnostics = [] as Diagnostic[];
 
     for (const [name, match] of undefinedNonterminals) {
@@ -68,8 +66,10 @@ export const diagnoseUndefinedVariables = (ast: AST, document: TextDocument) => 
     return diagnostics;
 };
 
-export const diagnoseUnusedVariables = (ast: AST, document: TextDocument) => {
-    const unusedNonterminals = findUnusedNonterminals(ast);
+export const diagnoseUnusedVariables = (
+    unusedNonterminals: Map<string, Nonterminal>,
+    document: TextDocument
+) => {
     const diagnostics = [] as Diagnostic[];
 
     for (const [name, match] of unusedNonterminals) {
@@ -111,9 +111,12 @@ export const diagnose = (text: string, document: TextDocument): Diagnostic[] => 
         if (parser.state?.isError || !ast) {
             return [diagnoseParsingError(parser)];
         }
+
+        const { undefinedNonterminals, unusedNonterminals } = analyzeNonterminals(ast);
+
         return [
-            ...diagnoseUndefinedVariables(ast, document),
-            ...diagnoseUnusedVariables(ast, document),
+            ...diagnoseUndefinedVariables(undefinedNonterminals, document),
+            ...diagnoseUnusedVariables(unusedNonterminals, document),
         ].filter((x) => x !== undefined);
     } catch (e) {
         const q = e;

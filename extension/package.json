@@ -1,0 +1,116 @@
+{
+    "name": "bbnf-lang",
+    "displayName": "BBNF Language",
+    "version": "1.0.0",
+    "description": "Full language support for BBNF grammars — diagnostics, go-to-definition, references, rename, hover, completion, formatting, and more.",
+    "icon": "icons/bbnf.png",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/mkbabb/bbnf-lang"
+    },
+    "author": "@mkbabb",
+    "publisher": "mkbabb",
+    "license": "MIT",
+    "keywords": [
+        "bbnf",
+        "grammar",
+        "parser",
+        "language-server"
+    ],
+    "categories": [
+        "Programming Languages",
+        "Formatters",
+        "Linters"
+    ],
+    "engines": {
+        "vscode": "^1.105.0"
+    },
+    "main": "./dist/extension.js",
+    "contributes": {
+        "configuration": {
+            "type": "object",
+            "title": "BBNF",
+            "properties": {
+                "BBNF.server.path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Custom path to the bbnf-lsp binary. Leave empty to use the bundled binary."
+                },
+                "BBNF.trace.server": {
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "description": "Trace communication between VS Code and the BBNF language server."
+                }
+            }
+        },
+        "languages": [
+            {
+                "id": "bbnf",
+                "aliases": [
+                    "BBNF",
+                    "bbnf"
+                ],
+                "extensions": [
+                    ".bbnf"
+                ],
+                "configuration": "./language-configuration.json",
+                "icon": {
+                    "light": "./icons/bbnf.png",
+                    "dark": "./icons/bbnf.png"
+                }
+            }
+        ],
+        "grammars": [
+            {
+                "language": "bbnf",
+                "scopeName": "source.bbnf",
+                "path": "./syntaxes/bbnf.tmLanguage.json"
+            },
+            {
+                "injectTo": [
+                    "source.bbnf"
+                ],
+                "scopeName": "inline.inlineLanguageString",
+                "path": "./syntaxes/inlineLanguageString.tmLanguage.json"
+            }
+        ],
+        "commands": [
+            {
+                "command": "bbnf.restartServer",
+                "title": "BBNF: Restart Language Server"
+            }
+        ],
+        "semanticTokenTypes": [
+            {
+                "id": "ruleDefinition",
+                "superType": "function",
+                "description": "LHS of a BBNF production rule"
+            },
+            {
+                "id": "ruleReference",
+                "superType": "variable",
+                "description": "Nonterminal reference in RHS"
+            }
+        ]
+    },
+    "scripts": {
+        "build": "node esbuild.mjs",
+        "watch": "node esbuild.mjs --watch",
+        "lint": "tsc --noEmit",
+        "package": "vsce package",
+        "publish": "vsce publish"
+    },
+    "devDependencies": {
+        "@types/node": "^25.3.0",
+        "@types/vscode": "^1.105.0",
+        "@vscode/vsce": "^3.7.0",
+        "esbuild": "^0.25.0",
+        "typescript": "^5.8.0",
+        "vscode-languageclient": "^9.0.0"
+    }
+}

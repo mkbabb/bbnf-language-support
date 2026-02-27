@@ -1,50 +1,30 @@
-COMMA = ","?w ;
+COMMA = "," ?w ;
 VENDOR_PREFIX = /-\w+-/ ;
+
 IDENT = /[a-zA-Z0-9_-]+/ ;
 NUMBER = /-?(0|[1-9]\d*)(\.\d+)?([eE][+-]?\d+)?/ ;
 PERCENTAGE = /[0-9]+%/ ;
-DIMENSION = /[0-9]+/ , IDENT ;
-
-VALUE_UNIT = DIMENSION | PERCENTAGE | NUMBER ;
-
+DIMENSION = /[0-9]+/, IDENT ;
 HASH = /#[a-zA-Z0-9_-]+/ ;
 INCLUDES = /~=([a-zA-Z0-9_-]+)/ ;
 DASHMATCH = /\|=(.+)/ ;
 IMPORTANT_SYM = /!important/ ;
 UNICODE_RANGE = /u\+[0-9a-fA-F?]{1,6}(-[0-9a-fA-F]{1,6})?/ ;
 STRING = /"((?:[^"\n\r\f\\]|\\[\n\r\f\\"])*?)"/ ;
-OPERATOR = "+" | "-" | "*" | "/" ;
 
-TERM = VALUE_UNIT | FUNCTION ;
+FUNCTION = IDENT, "(" >> ( ( PROPERTY_VALUE ?w << COMMA ? ) + ) ?w << ")" ;
 
-VIBES = "2" ;
-CALCULATION = TERM , ( OPERATOR?w , TERM )* | WOW ;
-
-FUNCTION =
-  IDENT , "(" >> ( ( CALCULATION?w << COMMA? )+ )?w << ")" ;
-
-FROM_TO_KEYWORD = ( "from" | "to" | "tooge" ) , "$" ;
+FROM_TO_KEYWORD = "from" | "to" ;
 
 PROPERTY_NAME = IDENT ;
-PROPERTY_VALUE =
-  (
-      CALCULATION | FUNCTION | STRING | PERCENTAGE | DIMENSION
-       | HASH | INCLUDES | DASHMATCH | UNICODE_RANGE
-       | IMPORTANT_SYM | NUMBER | IDENT
-   ) , "$" ;
+PROPERTY_VALUE = FUNCTION | STRING | PERCENTAGE | DIMENSION | HASH | INCLUDES | DASHMATCH | UNICODE_RANGE | IMPORTANT_SYM | NUMBER | IDENT ;
 
-DECLARATION = ( PROPERTY_NAME << ":" )?w , PROPERTY_VALUE ;
+DECLARATION = ( PROPERTY_NAME << ":" ) ?w , PROPERTY_VALUE ;
+DECLARATIONS_LIST = ( DECLARATION ?w << ";" ? ) + << ";" ? ;
 
-DECLARATIONS_LIST = ( DECLARATION?w << ";"? )+ << ";"? ;
-KEYFRAMES_NAME = IDENT ;
-KEYFRAME_SELECTOR =
-  PERCENTAGE | FROM_TO_KEYWORD | ( PERCENTAGE << COMMA? )+ ;
+KEYFRAMES_NAME = IDENT | HASH ;
+KEYFRAME_SELECTOR = PERCENTAGE | FROM_TO_KEYWORD | ( PERCENTAGE << COMMA ? ) + ;
+KEYFRAME_BLOCK = KEYFRAME_SELECTOR ?w , "{" , DECLARATIONS_LIST ?w , "}";
+KEYFRAME_BLOCKS = ( VENDOR_PREFIX ? , KEYFRAME_BLOCK ?w ) + ;
 
-KEYFRAME_BLOCK =
-  KEYFRAME_SELECTOR?w , "{" , DECLARATIONS_LIST?w , "}" ;
-
-KEYFRAME_BLOCKS = ( VENDOR_PREFIX? , KEYFRAME_BLOCK?w )* ;
-KEYFRAMES_RULE = (
-    "@keyframes"?w , KEYFRAMES_NAME?w , "{" , KEYFRAME_BLOCKS?w
-     , "}"
- )?w ; 
+KEYFRAMES_RULE = ( "@keyframes" ?w , KEYFRAMES_NAME ?w , "{" , KEYFRAME_BLOCKS ?w , "}" ) ?w;

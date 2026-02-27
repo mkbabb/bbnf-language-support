@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            vscode-target: linux-x64
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            vscode-target: linux-arm64
+            cross: true
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+            vscode-target: darwin-x64
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            vscode-target: darwin-arm64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            vscode-target: win32-x64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: lsp
+
+      - name: Install cross (for cross-compilation)
+        if: matrix.cross
+        run: cargo install cross
+
+      - name: Build LSP binary
+        working-directory: lsp
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+        shell: bash
+
+      - name: Copy binary to server/
+        run: |
+          mkdir -p server
+          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
+            cp lsp/target/${{ matrix.target }}/release/bbnf-lsp.exe server/bbnf-lsp.exe
+          else
+            cp lsp/target/${{ matrix.target }}/release/bbnf-lsp server/bbnf-lsp
+          fi
+        shell: bash
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+
+      - name: Package VSIX
+        run: npx vsce package --target ${{ matrix.vscode-target }} -o bbnf-lang-${{ matrix.vscode-target }}.vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.vscode-target }}
+          path: "*.vsix"
+
+  publish:
+    name: Publish to Marketplace
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          merge-multiple: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install -g @vscode/vsce
+
+      - name: Publish
+        run: vsce publish --packagePath *.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}

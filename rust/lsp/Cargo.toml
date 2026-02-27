@@ -1,0 +1,21 @@
+[package]
+name = "bbnf-lsp"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Language server for BBNF grammar files"
+
+[[bin]]
+name = "bbnf-lsp"
+path = "src/main.rs"
+
+[dependencies]
+tower-lsp-server = "0.23"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+parse_that = { version = "0.1.0", path = "/Users/mkbabb/Programming/parse-that/rust/parse_that" }
+bbnf = { path = "../bbnf" }
+pprint = { version = "0.3.0", path = "/Users/mkbabb/Programming/pprint" }
+indexmap = "2"
+

@@ -1,0 +1,86 @@
+use std::collections::HashMap;
+
+use tower_lsp_server::ls_types::*;
+
+use crate::analysis::{position_to_offset, span_to_range, symbol_at_offset, SymbolAtOffset};
+use crate::state::DocumentState;
+
+pub fn prepare_rename(
+    state: &DocumentState,
+    position: Position,
+) -> Option<PrepareRenameResponse> {
+    let offset = position_to_offset(&state.text, position);
+    let symbol = symbol_at_offset(&state.info, offset)?;
+
+    let (range, placeholder) = match &symbol {
+        SymbolAtOffset::RuleDefinition(rule) => (
+            span_to_range(&state.text, rule.name_span.0, rule.name_span.1),
+            rule.name.clone(),
+        ),
+        SymbolAtOffset::RuleReference { name, containing_rule } => {
+            // Find the reference span.
+            let ref_span = containing_rule
+                .references
+                .iter()
+                .find(|r| r.name == *name && offset >= r.span.0 && offset <= r.span.1)?;
+            (
+                span_to_range(&state.text, ref_span.span.0, ref_span.span.1),
+                name.clone(),
+            )
+        }
+    };
+
+    Some(PrepareRenameResponse::RangeWithPlaceholder {
+        range,
+        placeholder,
+    })
+}
+
+pub fn rename(
+    state: &DocumentState,
+    uri: &Uri,
+    position: Position,
+    new_name: &str,
+) -> Option<WorkspaceEdit> {
+    let offset = position_to_offset(&state.text, position);
+    let symbol = symbol_at_offset(&state.info, offset)?;
+
+    let name = match &symbol {
+        SymbolAtOffset::RuleDefinition(rule) => rule.name.clone(),
+        SymbolAtOffset::RuleReference { name, .. } => name.clone(),
+    };
+
+    let mut edits = Vec::new();
+
+    // Rename definition.
+    if let Some(&idx) = state.info.rule_index.get(name.as_str()) {
+        let rule = &state.info.rules[idx];
+        edits.push(TextEdit {
+            range: span_to_range(&state.text, rule.name_span.0, rule.name_span.1),
+            new_text: new_name.to_string(),
+        });
+    }
+
+    // Rename all references.
+    for rule in &state.info.rules {
+        for refinfo in &rule.references {
+            if refinfo.name == name {
+                edits.push(TextEdit {
+                    range: span_to_range(&state.text, refinfo.span.0, refinfo.span.1),
+                    new_text: new_name.to_string(),
+                });
+            }
+        }
+    }
+
+    if edits.is_empty() {
+        return None;
+    }
+
+    let mut changes = HashMap::new();
+    changes.insert(uri.clone(), edits);
+    Some(WorkspaceEdit {
+        changes: Some(changes),
+        ..Default::default()
+    })
+}

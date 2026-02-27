@@ -21,6 +21,7 @@ use bbnf::ParserAttributes;
 use bbnf::Token;
 use bbnf::TypeCache;
 use bbnf::optimize::remove_direct_left_recursion;
+use bbnf::imports::load_module_graph;
 use indexmap::IndexMap;
 
 use proc_macro::TokenStream;
@@ -260,28 +261,71 @@ pub fn bbnf_derive(input: TokenStream) -> TokenStream {
 
     let parser_container_attrs = parse_parser_attrs(&input.attrs);
 
-    let file_strings: Vec<_> = parser_container_attrs
-        .paths
-        .iter()
-        .map(|path| {
-            std::fs::read_to_string(path)
-                .unwrap_or_else(|_| panic!("Unable to read file: {}", path.display()))
-        })
-        .collect();
+    // Try import-aware loading first: if the first file contains @import directives,
+    // use load_module_graph() which handles DFS traversal, cycle detection, and
+    // selective import resolution. Otherwise fall back to simple fold.
+    let ast = if parser_container_attrs.paths.len() == 1 {
+        let entry = &parser_container_attrs.paths[0];
+        // Try parsing with import support to check for @import directives.
+        let source = std::fs::read_to_string(entry)
+            .unwrap_or_else(|_| panic!("Unable to read file: {}", entry.display()));
+        let source_static: &'static str = Box::leak(source.clone().into_boxed_str());
+        let parser = BBNFGrammar::grammar_with_imports();
+        let (parsed, _) = parser.parse_return_state(source_static);
 
-    let ast = file_strings
-        .iter()
-        .map(|file_string| {
-            BBNFGrammar::grammar()
-                .parse(file_string)
-                .expect("Unable to parse grammar")
-        })
-        .fold(IndexMap::new(), |mut acc, ast| {
-            for (name, expr) in ast {
-                acc.insert(name, expr);
+        if let Some(ref pg) = parsed {
+            if !pg.imports.is_empty() {
+                // File has imports — use module graph loader.
+                let registry = load_module_graph(entry)
+                    .unwrap_or_else(|e| panic!("Import resolution failed: {}", e));
+                if !registry.errors.is_empty() {
+                    let msgs: Vec<String> = registry.errors.iter().map(|e| e.to_string()).collect();
+                    panic!("Import errors:\n{}", msgs.join("\n"));
+                }
+                // Merge all modules in topological order (deps before dependents).
+                let mut merged = IndexMap::new();
+                for path in registry.paths() {
+                    if let Some(module) = registry.get_module(path) {
+                        for (name, expr) in &module.grammar.rules {
+                            merged.insert(name.clone(), expr.clone());
+                        }
+                    }
+                }
+                merged
+            } else {
+                // No imports — use the already-parsed rules directly.
+                pg.rules.clone()
             }
-            acc
-        });
+        } else {
+            panic!("Unable to parse grammar: {}", entry.display());
+        }
+    } else {
+        // Multiple explicit paths: simple fold (legacy behavior).
+        // Leak strings to get 'static lifetime (proc-macro runs once at compile time).
+        let file_strs: Vec<&'static str> = parser_container_attrs
+            .paths
+            .iter()
+            .map(|path| {
+                let s = std::fs::read_to_string(path)
+                    .unwrap_or_else(|_| panic!("Unable to read file: {}", path.display()));
+                &*Box::leak(s.into_boxed_str())
+            })
+            .collect();
+
+        file_strs
+            .iter()
+            .map(|file_string| {
+                BBNFGrammar::grammar()
+                    .parse(file_string)
+                    .expect("Unable to parse grammar")
+            })
+            .fold(IndexMap::new(), |mut acc, ast| {
+                for (name, expr) in ast {
+                    acc.insert(name, expr);
+                }
+                acc
+            })
+    };
 
     // Phase 2.2: Optionally remove direct left-recursion before analysis.
     let ast = if parser_container_attrs.remove_left_recursion {

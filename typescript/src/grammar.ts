@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Parser, string, all, any, regex } from "@mkbabb/parse-that";
-import type { Expression, Literal, Epsilon, Nonterminal, Comment, Regex, Group, Optional, Many, Concatenation, Alteration, ProductionRule } from "./types.js";
+import type { Expression, Literal, Epsilon, Nonterminal, Comment, Regex, Group, Optional, Many, Concatenation, Alteration, ProductionRule, ImportDirective, ParsedGrammar } from "./types.js";
 
 const operatorToType: Record<string, string> = {
     "|": "alternation",
@@ -79,6 +79,8 @@ export class BBNFGrammar {
     private _rhs?: Parser<any>;
     private _productionRule?: Parser<any>;
     private _grammar?: Parser<any>;
+    private _importDirective?: Parser<any>;
+    private _grammarWithImports?: Parser<any>;
 
     constructor(options?: Partial<Options>) {
         this.options = {
@@ -351,5 +353,72 @@ export class BBNFGrammar {
                 .many(1)
                 .trim(),
         ));
+    }
+
+    importDirective(): Parser<any> {
+        return (this._importDirective ??= Parser.lazy(() => {
+            const importPath = regex(/(\\.|[^"\\])*/)
+                .wrap(string('"'), string('"'));
+
+            const importItems = this.identifier()
+                .sepBy(string(",").trim(), 1)
+                .trim()
+                .wrap(string("{"), string("}"));
+
+            // Selective: @import { a, b } from "path"
+            const selective = all(
+                importItems,
+                string("from").trim(),
+                importPath,
+            ).map(([items, , path]: any) => ({
+                path,
+                items,
+            } as ImportDirective));
+
+            // Glob: @import "path"
+            const glob = importPath.map((path: any) => ({
+                path,
+            } as ImportDirective));
+
+            return mapStatePosition(
+                all(
+                    string("@import").trim(),
+                    any(selective, glob),
+                    any(string(";"), string(".")).trim().opt(),
+                ).map(([, directive]: any) => directive as ImportDirective),
+            );
+        }));
+    }
+
+    grammarWithImports(): Parser<any> {
+        return (this._grammarWithImports ??= Parser.lazy(() => {
+            const rule = this.productionRule()
+                .trim(this.lineComment().trim().many() as any, false)
+                .map(([above, rule, below]: any) => {
+                    rule.comment = {
+                        above,
+                        below,
+                    };
+                    return rule;
+                });
+
+            const item = any(
+                this.importDirective().map((d: ImportDirective) => ({ type: "import" as const, value: d })),
+                rule.map((r: ProductionRule) => ({ type: "rule" as const, value: r })),
+            );
+
+            return item.many(1).trim().map((items: any[]) => {
+                const imports: ImportDirective[] = [];
+                const rules: ProductionRule[] = [];
+                for (const item of items) {
+                    if (item.type === "import") {
+                        imports.push(item.value);
+                    } else {
+                        rules.push(item.value);
+                    }
+                }
+                return { imports, rules } as { imports: ImportDirective[]; rules: ProductionRule[] };
+            });
+        }));
     }
 }

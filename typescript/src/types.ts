@@ -73,3 +73,16 @@ export type ProductionRule = {
 export type AST = Map<string, ProductionRule>;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Nonterminals = { [key: string]: Parser<any> };
+
+export type ImportDirective = {
+    /** Relative path to the imported file. */
+    path: string;
+    /** If set, only these rule names are imported (selective import). */
+    items?: string[];
+    range?: { start: number; end: number };
+};
+
+export type ParsedGrammar = {
+    imports: ImportDirective[];
+    rules: AST;
+};

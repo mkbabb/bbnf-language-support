@@ -40,7 +40,7 @@ rhs = alternation ;
 rule = lhs, "=" ?w, rhs ?w, ( ";" | "." ) ;
 
 import_path = "\"" , /(\\.|[^"\\])*/ , "\"" ;
-import_items = "{" ?w , identifier , ( "," ?w , identifier ) * ?w , "}" ;
+import_items = "{" ?w , identifier , ( "," ?w , identifier ) * , "}" ;
 import_directive = "@import" ?w , (
       import_items ?w , "from" ?w , import_path
     | import_path

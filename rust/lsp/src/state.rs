@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use bbnf::grammar::{BBNFGrammar, Expression, Token};
+use bbnf::grammar::{BBNFGrammar, Expression, Token, AST};
 use bbnf::analysis::{tarjan_scc, compute_first_sets, CharSet};
 use bbnf::generate::{calculate_ast_deps, get_nonterminal_name};
+
+use self_cell::self_cell;
 
 /// Extract the inner value from a TokenExpression (single expression).
 fn get_inner_expression<'a, T>(tok: &'a Token<'a, T>) -> &'a T {
@@ -72,26 +74,136 @@ pub struct DocumentInfo {
     pub imports: Vec<ImportInfo>,
 }
 
-/// Stored per-document: raw text + analyzed info + precomputed line index.
+/// Diagnostic info extracted from the parser state (owned, no lifetimes).
+#[derive(Debug, Clone)]
+pub struct ParseDiagnostics {
+    /// Parser offset after parsing (how far it consumed).
+    pub offset: usize,
+    /// Furthest offset reached during parsing (for error reporting).
+    pub furthest_offset: usize,
+    /// If parsing panicked, the panic message.
+    pub panic_message: Option<String>,
+}
+
+// Self-referential struct: owns the source text and the parsed AST that borrows from it.
+self_cell! {
+    struct OwnedAst {
+        owner: String,
+        #[covariant]
+        dependent: CachedAst,
+    }
+}
+
+type CachedAst<'a> = Option<CachedParseResult<'a>>;
+
+/// Holds both the parsed grammar and import directives (borrows from OwnedAst's owner).
+struct CachedParseResult<'a> {
+    ast: AST<'a>,
+    imports: Vec<ImportInfo>,
+}
+
+/// Parse the source text once, returning the cached AST data and diagnostic info.
+/// Both are extracted from a single parse call.
+fn parse_once(src: &str) -> (Option<CachedParseResult<'_>>, ParseDiagnostics) {
+    let parse_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let parser = BBNFGrammar::grammar_with_imports();
+        parser.parse_return_state(src)
+    }));
+
+    match parse_result {
+        Ok((result, parser_state)) => {
+            let diag = ParseDiagnostics {
+                offset: parser_state.offset,
+                furthest_offset: parser_state.furthest_offset,
+                panic_message: None,
+            };
+            let cached = result.map(|pg| {
+                let imports = pg.imports.iter().map(|imp| ImportInfo {
+                    path: imp.path.to_string(),
+                    span: (imp.span.start, imp.span.end),
+                    items: imp.items.as_ref().map(|items| {
+                        items.iter().map(|i| i.to_string()).collect()
+                    }),
+                }).collect();
+                CachedParseResult {
+                    ast: pg.rules,
+                    imports,
+                }
+            });
+            (cached, diag)
+        }
+        Err(panic_info) => {
+            let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else {
+                "Internal parser error".to_string()
+            };
+            let diag = ParseDiagnostics {
+                offset: 0,
+                furthest_offset: 0,
+                panic_message: Some(msg),
+            };
+            (None, diag)
+        }
+    }
+}
+
+/// Stored per-document: raw text + analyzed info + precomputed line index + cached AST.
 pub struct DocumentState {
     pub text: String,
     pub info: DocumentInfo,
     /// Precomputed line-start offsets for O(log n) position conversion.
     pub line_index: LineIndex,
+    /// Cached parsed AST (self-referential: borrows from its own String).
+    ast_cell: OwnedAst,
 }
 
 impl DocumentState {
     pub fn new(text: String) -> Self {
         let line_index = LineIndex::new(&text);
-        let info = analyze(&text, &line_index);
-        Self { text, info, line_index }
+        // Parse once: the OwnedAst captures the AST, and we extract diagnostics
+        // via a Cell to avoid double-parsing.
+        let parse_diag = std::cell::Cell::new(None::<ParseDiagnostics>);
+        let ast_cell = OwnedAst::new(text.clone(), |src| {
+            let (cached, diag) = parse_once(src);
+            parse_diag.set(Some(diag));
+            cached
+        });
+        let diag = parse_diag.into_inner().unwrap();
+        let info = analyze_from_cache(
+            &text,
+            &line_index,
+            ast_cell.borrow_dependent().as_ref(),
+            &diag,
+        );
+        Self { text, info, line_index, ast_cell }
     }
 
     pub fn update(&mut self, text: String) {
         let line_index = LineIndex::new(&text);
-        self.info = analyze(&text, &line_index);
+        let parse_diag = std::cell::Cell::new(None::<ParseDiagnostics>);
+        let ast_cell = OwnedAst::new(text.clone(), |src| {
+            let (cached, diag) = parse_once(src);
+            parse_diag.set(Some(diag));
+            cached
+        });
+        let diag = parse_diag.into_inner().unwrap();
+        self.info = analyze_from_cache(
+            &text,
+            &line_index,
+            ast_cell.borrow_dependent().as_ref(),
+            &diag,
+        );
         self.line_index = line_index;
+        self.ast_cell = ast_cell;
         self.text = text;
+    }
+
+    /// Access the cached AST (borrows from internally-owned text).
+    pub fn ast(&self) -> Option<&AST<'_>> {
+        self.ast_cell.borrow_dependent().as_ref().map(|c| &c.ast)
     }
 }
 
@@ -107,54 +219,43 @@ pub mod token_types {
     pub const COMMENT: u32 = 6;
 }
 
-/// Analyze a BBNF document. Parses the text, extracts all rule data, diagnostics,
-/// and semantic tokens into owned types. The borrowed AST is dropped before return.
-pub fn analyze(text: &str, line_index: &LineIndex) -> DocumentInfo {
-    // Wrap parsing in catch_unwind to handle regex panics in grammar.rs
-    let parse_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let parser = BBNFGrammar::grammar_with_imports();
-        parser.parse_return_state(text)
-    }));
-
+/// Analyze a BBNF document using pre-parsed AST and diagnostics from `parse_once()`.
+/// This avoids double-parsing: the OwnedAst parses once, and we reuse its results here.
+fn analyze_from_cache(
+    text: &str,
+    line_index: &LineIndex,
+    cached: Option<&CachedParseResult<'_>>,
+    parse_diag: &ParseDiagnostics,
+) -> DocumentInfo {
     let mut rules = Vec::new();
     let mut diagnostics = Vec::new();
     let mut rule_index = HashMap::new();
     let mut semantic_tokens = Vec::new();
 
-    let (result, parser_state) = match parse_result {
-        Ok(r) => r,
-        Err(panic_info) => {
-            // Parser panicked (likely invalid regex).
-            let msg = if let Some(s) = panic_info.downcast_ref::<String>() {
-                s.clone()
-            } else if let Some(s) = panic_info.downcast_ref::<&str>() {
-                s.to_string()
-            } else {
-                "Internal parser error".to_string()
-            };
-            let pos = Position::new(0, 0);
-            diagnostics.push(Diagnostic {
-                range: Range::new(pos, pos),
-                severity: Some(DiagnosticSeverity::ERROR),
-                source: Some("bbnf".into()),
-                message: format!("Parse error: {}", msg),
-                ..Default::default()
-            });
-            return DocumentInfo {
-                rules,
-                diagnostics,
-                rule_index,
-                semantic_tokens,
-                first_set_labels: HashMap::new(),
-                nullable_rules: HashSet::new(),
-                imports: Vec::new(),
-            };
-        }
-    };
+    // Handle parser panic.
+    if let Some(msg) = &parse_diag.panic_message {
+        let pos = Position::new(0, 0);
+        diagnostics.push(Diagnostic {
+            range: Range::new(pos, pos),
+            severity: Some(DiagnosticSeverity::ERROR),
+            source: Some("bbnf".into()),
+            message: format!("Parse error: {}", msg),
+            ..Default::default()
+        });
+        return DocumentInfo {
+            rules,
+            diagnostics,
+            rule_index,
+            semantic_tokens,
+            first_set_labels: HashMap::new(),
+            nullable_rules: HashSet::new(),
+            imports: Vec::new(),
+        };
+    }
 
-    let Some(parsed_grammar) = result else {
+    let Some(parsed) = cached else {
         // Parse failure — report error at furthest offset.
-        let offset = parser_state.furthest_offset.max(parser_state.offset);
+        let offset = parse_diag.furthest_offset.max(parse_diag.offset);
         let pos = line_index.offset_to_position(offset);
         diagnostics.push(Diagnostic {
             range: Range::new(pos, pos),
@@ -180,10 +281,10 @@ pub fn analyze(text: &str, line_index: &LineIndex) -> DocumentInfo {
     };
 
     // Check for incomplete parse (didn't consume all input).
-    if parser_state.offset < text.len() {
-        let remaining = &text[parser_state.offset..];
+    if parse_diag.offset < text.len() {
+        let remaining = &text[parse_diag.offset..];
         if !remaining.trim().is_empty() {
-            let pos = line_index.offset_to_position(parser_state.offset);
+            let pos = line_index.offset_to_position(parse_diag.offset);
             diagnostics.push(Diagnostic {
                 range: Range::new(pos, pos),
                 severity: Some(DiagnosticSeverity::ERROR),
@@ -194,23 +295,12 @@ pub fn analyze(text: &str, line_index: &LineIndex) -> DocumentInfo {
         }
     }
 
-    // Extract imports and rules from the parsed grammar.
-    let import_infos: Vec<ImportInfo> = parsed_grammar
-        .imports
-        .iter()
-        .map(|imp| ImportInfo {
-            path: imp.path.to_string(),
-            span: (imp.span.start, imp.span.end),
-            items: imp.items.as_ref().map(|items| {
-                items.iter().map(|i| i.to_string()).collect()
-            }),
-        })
-        .collect();
-    let ast = parsed_grammar.rules;
+    let ast = &parsed.ast;
+    let import_infos = parsed.imports.clone();
 
     // Check for empty AST on non-empty input — likely a parse failure not caught above.
-    if ast.is_empty() && !text.trim().is_empty() && parsed_grammar.imports.is_empty() {
-        let furthest = parser_state.furthest_offset.max(parser_state.offset);
+    if ast.is_empty() && !text.trim().is_empty() && import_infos.is_empty() {
+        let furthest = parse_diag.furthest_offset.max(parse_diag.offset);
         let pos = line_index.offset_to_position(furthest.min(text.len()));
         diagnostics.push(Diagnostic {
             range: Range::new(Position::new(0, 0), pos),
@@ -388,6 +478,13 @@ pub fn analyze(text: &str, line_index: &LineIndex) -> DocumentInfo {
         nullable_rules,
         imports: import_infos,
     }
+}
+
+/// Public convenience wrapper: parses the text and analyzes in one step.
+/// Used by tests and any code that doesn't need the cached AST.
+pub fn analyze(text: &str, line_index: &LineIndex) -> DocumentInfo {
+    let (cached, diag) = parse_once(text);
+    analyze_from_cache(text, line_index, cached.as_ref(), &diag)
 }
 
 /// Format a CharSet as a human-readable string for inlay hints.

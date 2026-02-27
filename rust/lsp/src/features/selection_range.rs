@@ -1,6 +1,6 @@
 use tower_lsp_server::ls_types::*;
 
-use bbnf::grammar::{BBNFGrammar, Expression, Token};
+use bbnf::grammar::{Expression, Token};
 
 use crate::analysis::{position_to_offset, span_to_range};
 use crate::state::DocumentState;
@@ -15,10 +15,8 @@ fn get_inner_expression<'a, T>(tok: &'a Token<'a, T>) -> &'a T {
 /// Builds a chain of nested ranges from innermost (token) to outermost (full rule),
 /// enabling "Expand/Shrink Selection" in the editor.
 pub fn selection_ranges(state: &DocumentState, positions: Vec<Position>) -> Vec<SelectionRange> {
-    // Re-parse to get the AST (we need the borrowed expressions).
-    let parser = BBNFGrammar::grammar();
-    let (result, _) = parser.parse_return_state(&state.text);
-    let Some(ast) = result else {
+    // Use the cached AST (no re-parsing needed).
+    let Some(ast) = state.ast() else {
         return positions.iter().map(|p| trivial_range(*p)).collect();
     };
 

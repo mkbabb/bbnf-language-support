@@ -1,6 +1,6 @@
 use tower_lsp_server::ls_types::*;
 
-use bbnf::grammar::{BBNFGrammar, Expression, Token, AST};
+use bbnf::grammar::{Expression, Token, AST};
 
 /// Extract the inner value from a TokenExpression.
 fn get_inner_expression<'a, T>(tok: &'a Token<'a, T>) -> &'a T {
@@ -13,11 +13,9 @@ use crate::state::DocumentState;
 const MAX_WIDTH: usize = 66;
 
 pub fn format_document(state: &DocumentState) -> Option<Vec<TextEdit>> {
-    let parser = BBNFGrammar::grammar();
-    let (result, _) = parser.parse_return_state(&state.text);
-    let ast = result?;
+    let ast = state.ast()?;
 
-    let formatted = format_ast(&ast);
+    let formatted = format_ast(ast);
 
     // Replace entire document.
     let end = offset_to_end(&state.text);
@@ -29,9 +27,7 @@ pub fn format_document(state: &DocumentState) -> Option<Vec<TextEdit>> {
 
 /// Format only rules that overlap the selected range.
 pub fn format_range(state: &DocumentState, range: Range) -> Option<Vec<TextEdit>> {
-    let parser = BBNFGrammar::grammar();
-    let (result, _) = parser.parse_return_state(&state.text);
-    let ast = result?;
+    let ast = state.ast()?;
 
     let range_start = position_to_offset(&state.text, range.start);
     let range_end = position_to_offset(&state.text, range.end);

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use bbnf::grammar::{BBNFGrammar, Expression, Token};
-use bbnf::analysis::{calculate_acyclic_deps_scc, calculate_non_acyclic_deps_scc, tarjan_scc, compute_first_sets, CharSet};
+use bbnf::analysis::{tarjan_scc, compute_first_sets, CharSet};
 use bbnf::generate::{calculate_ast_deps, get_nonterminal_name};
 
 /// Extract the inner value from a TokenExpression (single expression).
@@ -9,7 +9,7 @@ fn get_inner_expression<'a, T>(tok: &'a Token<'a, T>) -> &'a T {
     &tok.value
 }
 
-use crate::analysis::{offset_to_position, span_to_range};
+use crate::analysis::LineIndex;
 
 use tower_lsp_server::ls_types::*;
 
@@ -44,6 +44,17 @@ pub struct SemanticTokenInfo {
     pub token_type: u32,
 }
 
+/// Owned representation of an import directive.
+#[derive(Debug, Clone)]
+pub struct ImportInfo {
+    /// The path string from the import.
+    pub path: String,
+    /// Byte offset range of the entire import directive.
+    pub span: (usize, usize),
+    /// If `Some`, selective import; if `None`, glob import.
+    pub items: Option<Vec<String>>,
+}
+
 /// Pre-analyzed document state — all data is owned (no lifetimes).
 #[derive(Debug, Clone)]
 pub struct DocumentInfo {
@@ -57,22 +68,29 @@ pub struct DocumentInfo {
     pub first_set_labels: HashMap<String, String>,
     /// Rules that can derive the empty string.
     pub nullable_rules: HashSet<String>,
+    /// Import directives parsed from the document.
+    pub imports: Vec<ImportInfo>,
 }
 
-/// Stored per-document: raw text + analyzed info.
+/// Stored per-document: raw text + analyzed info + precomputed line index.
 pub struct DocumentState {
     pub text: String,
     pub info: DocumentInfo,
+    /// Precomputed line-start offsets for O(log n) position conversion.
+    pub line_index: LineIndex,
 }
 
 impl DocumentState {
     pub fn new(text: String) -> Self {
-        let info = analyze(&text);
-        Self { text, info }
+        let line_index = LineIndex::new(&text);
+        let info = analyze(&text, &line_index);
+        Self { text, info, line_index }
     }
 
     pub fn update(&mut self, text: String) {
-        self.info = analyze(&text);
+        let line_index = LineIndex::new(&text);
+        self.info = analyze(&text, &line_index);
+        self.line_index = line_index;
         self.text = text;
     }
 }
@@ -91,10 +109,10 @@ pub mod token_types {
 
 /// Analyze a BBNF document. Parses the text, extracts all rule data, diagnostics,
 /// and semantic tokens into owned types. The borrowed AST is dropped before return.
-pub fn analyze(text: &str) -> DocumentInfo {
+pub fn analyze(text: &str, line_index: &LineIndex) -> DocumentInfo {
     // Wrap parsing in catch_unwind to handle regex panics in grammar.rs
     let parse_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let parser = BBNFGrammar::grammar();
+        let parser = BBNFGrammar::grammar_with_imports();
         parser.parse_return_state(text)
     }));
 
@@ -129,14 +147,15 @@ pub fn analyze(text: &str) -> DocumentInfo {
                 semantic_tokens,
                 first_set_labels: HashMap::new(),
                 nullable_rules: HashSet::new(),
+                imports: Vec::new(),
             };
         }
     };
 
-    let Some(ast) = result else {
+    let Some(parsed_grammar) = result else {
         // Parse failure — report error at furthest offset.
         let offset = parser_state.furthest_offset.max(parser_state.offset);
-        let pos = offset_to_position(text, offset);
+        let pos = line_index.offset_to_position(offset);
         diagnostics.push(Diagnostic {
             range: Range::new(pos, pos),
             severity: Some(DiagnosticSeverity::ERROR),
@@ -156,6 +175,7 @@ pub fn analyze(text: &str) -> DocumentInfo {
             semantic_tokens,
             first_set_labels: HashMap::new(),
             nullable_rules: HashSet::new(),
+            imports: Vec::new(),
         };
     };
 
@@ -163,7 +183,7 @@ pub fn analyze(text: &str) -> DocumentInfo {
     if parser_state.offset < text.len() {
         let remaining = &text[parser_state.offset..];
         if !remaining.trim().is_empty() {
-            let pos = offset_to_position(text, parser_state.offset);
+            let pos = line_index.offset_to_position(parser_state.offset);
             diagnostics.push(Diagnostic {
                 range: Range::new(pos, pos),
                 severity: Some(DiagnosticSeverity::ERROR),
@@ -174,10 +194,24 @@ pub fn analyze(text: &str) -> DocumentInfo {
         }
     }
 
+    // Extract imports and rules from the parsed grammar.
+    let import_infos: Vec<ImportInfo> = parsed_grammar
+        .imports
+        .iter()
+        .map(|imp| ImportInfo {
+            path: imp.path.to_string(),
+            span: (imp.span.start, imp.span.end),
+            items: imp.items.as_ref().map(|items| {
+                items.iter().map(|i| i.to_string()).collect()
+            }),
+        })
+        .collect();
+    let ast = parsed_grammar.rules;
+
     // Check for empty AST on non-empty input — likely a parse failure not caught above.
-    if ast.is_empty() && !text.trim().is_empty() {
+    if ast.is_empty() && !text.trim().is_empty() && parsed_grammar.imports.is_empty() {
         let furthest = parser_state.furthest_offset.max(parser_state.offset);
-        let pos = offset_to_position(text, furthest.min(text.len()));
+        let pos = line_index.offset_to_position(furthest.min(text.len()));
         diagnostics.push(Diagnostic {
             range: Range::new(Position::new(0, 0), pos),
             severity: Some(DiagnosticSeverity::ERROR),
@@ -192,6 +226,7 @@ pub fn analyze(text: &str) -> DocumentInfo {
             semantic_tokens,
             first_set_labels: HashMap::new(),
             nullable_rules: HashSet::new(),
+            imports: import_infos,
         };
     }
 
@@ -224,7 +259,7 @@ pub fn analyze(text: &str) -> DocumentInfo {
             // Check for duplicate rule.
             if let Some(&_existing_idx) = rule_index.get(&name_str) {
                 diagnostics.push(Diagnostic {
-                    range: span_to_range(text, name_byte_span.0, name_byte_span.1),
+                    range: line_index.span_to_range(name_byte_span.0, name_byte_span.1),
                     severity: Some(DiagnosticSeverity::ERROR),
                     source: Some("bbnf".into()),
                     message: format!("Duplicate rule: `{}`", name_str),
@@ -261,7 +296,7 @@ pub fn analyze(text: &str) -> DocumentInfo {
             referenced_names.insert(&refinfo.name);
             if !defined.contains_key(refinfo.name.as_str()) {
                 diagnostics.push(Diagnostic {
-                    range: span_to_range(text, refinfo.span.0, refinfo.span.1),
+                    range: line_index.span_to_range(refinfo.span.0, refinfo.span.1),
                     severity: Some(DiagnosticSeverity::WARNING),
                     source: Some("bbnf".into()),
                     message: format!("Undefined rule: `{}`", refinfo.name),
@@ -276,7 +311,7 @@ pub fn analyze(text: &str) -> DocumentInfo {
             // Don't flag the first rule — it's typically the entry point.
             if rule_index.get(rule.name.as_str()) != Some(&0) {
                 diagnostics.push(Diagnostic {
-                    range: span_to_range(text, rule.name_span.0, rule.name_span.1),
+                    range: line_index.span_to_range(rule.name_span.0, rule.name_span.1),
                     severity: Some(DiagnosticSeverity::HINT),
                     source: Some("bbnf".into()),
                     message: format!("Unused rule: `{}`", rule.name),
@@ -290,15 +325,14 @@ pub fn analyze(text: &str) -> DocumentInfo {
     // Left recursion detection via dependency analysis.
     let deps = calculate_ast_deps(&ast);
     let scc = tarjan_scc(&deps);
-    let acyclic = calculate_acyclic_deps_scc(&deps, &scc);
-    let non_acyclic = calculate_non_acyclic_deps_scc(&deps, &acyclic);
 
-    for expr in non_acyclic.keys() {
-        if let Some(name) = get_nonterminal_name(expr) {
+    // Use SCC cyclic_rules directly — O(1) lookup instead of O(n*(V+E)) DFS.
+    for rule_expr in &scc.cyclic_rules {
+        if let Some(name) = get_nonterminal_name(rule_expr) {
             if let Some(&idx) = rule_index.get(name) {
                 let rule = &rules[idx];
                 diagnostics.push(Diagnostic {
-                    range: span_to_range(text, rule.name_span.0, rule.name_span.1),
+                    range: line_index.span_to_range(rule.name_span.0, rule.name_span.1),
                     severity: Some(DiagnosticSeverity::INFORMATION),
                     source: Some("bbnf".into()),
                     message: format!("Rule `{}` participates in a cycle (left recursion)", name),
@@ -308,8 +342,8 @@ pub fn analyze(text: &str) -> DocumentInfo {
         }
     }
 
-    // FIRST set computation for inlay hints.
-    let first_sets = compute_first_sets(&ast, &deps);
+    // FIRST set computation for inlay hints (SCC-ordered, O(n+E)).
+    let first_sets = compute_first_sets(&ast, &deps, &scc);
 
     let mut first_set_labels = HashMap::new();
     let mut nullable_rules = HashSet::new();
@@ -331,7 +365,7 @@ pub fn analyze(text: &str) -> DocumentInfo {
                 if let Some(&idx) = rule_index.get(name.as_ref()) {
                     let rule = &rules[idx];
                     diagnostics.push(Diagnostic {
-                        range: span_to_range(text, rule.name_span.0, rule.name_span.1),
+                        range: line_index.span_to_range(rule.name_span.0, rule.name_span.1),
                         severity: Some(DiagnosticSeverity::WARNING),
                         source: Some("bbnf".into()),
                         message: format!("Rule `{}` has an empty body", name),
@@ -352,6 +386,7 @@ pub fn analyze(text: &str) -> DocumentInfo {
         semantic_tokens,
         first_set_labels,
         nullable_rules,
+        imports: import_infos,
     }
 }
 

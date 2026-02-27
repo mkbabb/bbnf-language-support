@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -9,9 +9,23 @@ use tower_lsp_server::{Client, LanguageServer};
 use crate::features;
 use crate::state::DocumentState;
 
+/// Global rule index entry: a rule name defined in a specific document.
+#[derive(Debug, Clone)]
+pub struct GlobalRule {
+    pub uri: Uri,
+    /// Index into the document's `rules` vec.
+    pub rule_index: usize,
+}
+
 pub struct BbnfLanguageServer {
     client: Client,
     documents: Arc<RwLock<HashMap<Uri, DocumentState>>>,
+    /// Forward import graph: URI → set of URIs it imports.
+    import_graph: Arc<RwLock<HashMap<Uri, Vec<Uri>>>>,
+    /// Reverse import graph: URI → set of URIs that import it.
+    importers: Arc<RwLock<HashMap<Uri, HashSet<Uri>>>>,
+    /// Global rule index: rule name → list of (uri, rule_index) where it's defined.
+    global_rules: Arc<RwLock<HashMap<String, Vec<GlobalRule>>>>,
 }
 
 impl BbnfLanguageServer {
@@ -19,7 +33,23 @@ impl BbnfLanguageServer {
         Self {
             client,
             documents: Arc::new(RwLock::new(HashMap::new())),
+            import_graph: Arc::new(RwLock::new(HashMap::new())),
+            importers: Arc::new(RwLock::new(HashMap::new())),
+            global_rules: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Resolve an import path relative to a document URI.
+    fn resolve_import_uri(base_uri: &Uri, import_path: &str) -> Option<Uri> {
+        let base_path = base_uri.to_file_path()?;
+        let dir = base_path.parent()?;
+        let mut resolved = dir.join(import_path);
+        if resolved.extension().is_none() {
+            resolved.set_extension("bbnf");
+        }
+        // Canonicalize if possible (file exists).
+        let resolved = resolved.canonicalize().unwrap_or(resolved);
+        Uri::from_file_path(&resolved)
     }
 
     async fn on_change(&self, uri: Uri, text: String) {
@@ -32,9 +62,149 @@ impl BbnfLanguageServer {
             state.update(text);
             diagnostics = state.info.diagnostics.clone();
         }
+
+        // Update global rule index for this document.
+        self.update_global_rules(&uri).await;
+
+        // Update import graph.
+        self.update_import_graph(&uri).await;
+
+        // Suppress "Undefined rule" diagnostics for imported rules.
+        let filtered_diagnostics = self.filter_diagnostics_with_imports(&uri, diagnostics).await;
+
         self.client
-            .publish_diagnostics(uri, diagnostics, None)
+            .publish_diagnostics(uri.clone(), filtered_diagnostics, None)
             .await;
+
+        // Re-publish diagnostics for any documents that import this one
+        // (their "undefined rule" warnings may be stale).
+        let reverse_deps = {
+            let importers = self.importers.read().await;
+            importers.get(&uri).cloned().unwrap_or_default()
+        };
+        for importer_uri in reverse_deps {
+            let docs = self.documents.read().await;
+            if let Some(state) = docs.get(&importer_uri) {
+                let diags = state.info.diagnostics.clone();
+                drop(docs);
+                let filtered = self.filter_diagnostics_with_imports(&importer_uri, diags).await;
+                self.client
+                    .publish_diagnostics(importer_uri, filtered, None)
+                    .await;
+            }
+        }
+    }
+
+    /// Update the global rule index for a document.
+    async fn update_global_rules(&self, uri: &Uri) {
+        let docs = self.documents.read().await;
+        let mut global = self.global_rules.write().await;
+
+        // Remove old entries for this URI.
+        for entries in global.values_mut() {
+            entries.retain(|e| &e.uri != uri);
+        }
+        // Remove empty entries.
+        global.retain(|_, v| !v.is_empty());
+
+        // Add new entries.
+        if let Some(state) = docs.get(uri) {
+            for (idx, rule) in state.info.rules.iter().enumerate() {
+                global.entry(rule.name.clone()).or_default().push(GlobalRule {
+                    uri: uri.clone(),
+                    rule_index: idx,
+                });
+            }
+        }
+    }
+
+    /// Update the import graph for a document.
+    async fn update_import_graph(&self, uri: &Uri) {
+        let docs = self.documents.read().await;
+        let Some(state) = docs.get(uri) else { return };
+
+        let new_imports: Vec<Uri> = state.info.imports.iter()
+            .filter_map(|imp| Self::resolve_import_uri(uri, &imp.path))
+            .collect();
+
+        drop(docs);
+
+        let mut graph = self.import_graph.write().await;
+        let mut reverse = self.importers.write().await;
+
+        // Remove old reverse entries.
+        if let Some(old) = graph.get(uri) {
+            for old_uri in old {
+                if let Some(set) = reverse.get_mut(old_uri) {
+                    set.remove(uri);
+                }
+            }
+        }
+
+        // Add new reverse entries.
+        for new_uri in &new_imports {
+            reverse.entry(new_uri.clone()).or_default().insert(uri.clone());
+        }
+
+        graph.insert(uri.clone(), new_imports);
+    }
+
+    /// Filter diagnostics: suppress "Undefined rule" for rules that are available via imports.
+    async fn filter_diagnostics_with_imports(
+        &self,
+        uri: &Uri,
+        diagnostics: Vec<Diagnostic>,
+    ) -> Vec<Diagnostic> {
+        let graph = self.import_graph.read().await;
+        let Some(_imported_uris) = graph.get(uri) else {
+            return diagnostics;
+        };
+
+        // Collect all rule names available via imports.
+        let docs = self.documents.read().await;
+        let mut available_rules: HashSet<String> = HashSet::new();
+
+        // For each imported URI, check the document's import info.
+        let doc_imports = docs.get(uri).map(|s| s.info.imports.clone()).unwrap_or_default();
+        drop(docs);
+
+        for import_info in &doc_imports {
+            if let Some(import_uri) = Self::resolve_import_uri(uri, &import_info.path) {
+                let docs = self.documents.read().await;
+                if let Some(target_state) = docs.get(&import_uri) {
+                    if let Some(ref items) = import_info.items {
+                        // Selective import.
+                        for name in items {
+                            if target_state.info.rule_index.contains_key(name.as_str()) {
+                                available_rules.insert(name.clone());
+                            }
+                        }
+                    } else {
+                        // Glob import: all rules.
+                        for rule in &target_state.info.rules {
+                            available_rules.insert(rule.name.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        if available_rules.is_empty() {
+            return diagnostics;
+        }
+
+        diagnostics
+            .into_iter()
+            .filter(|d| {
+                // Suppress "Undefined rule: `name`" if `name` is imported.
+                if d.message.starts_with("Undefined rule: `") {
+                    if let Some(name) = d.message.strip_prefix("Undefined rule: `").and_then(|s| s.strip_suffix('`')) {
+                        return !available_rules.contains(name);
+                    }
+                }
+                true
+            })
+            .collect()
     }
 
     /// Apply incremental text edits to the stored document text.
@@ -192,7 +362,34 @@ impl LanguageServer for BbnfLanguageServer {
         let Some(state) = docs.get(&uri) else {
             return Ok(None);
         };
-        Ok(features::goto_definition::goto_definition(state, &uri, pos))
+        // Try local first.
+        if let Some(result) = features::goto_definition::goto_definition(state, &uri, pos) {
+            return Ok(Some(result));
+        }
+        // Cross-file: look up in global rules.
+        let offset = crate::analysis::position_to_offset(&state.text, pos);
+        let symbol = crate::analysis::symbol_at_offset(&state.info, offset);
+        if let Some(crate::analysis::SymbolAtOffset::RuleReference { name, .. }) = symbol {
+            let global = self.global_rules.read().await;
+            if let Some(entries) = global.get(&name) {
+                for entry in entries {
+                    if entry.uri != uri {
+                        if let Some(target_state) = docs.get(&entry.uri) {
+                            if let Some(rule) = target_state.info.rules.get(entry.rule_index) {
+                                let range = crate::analysis::span_to_range(
+                                    &target_state.text, rule.name_span.0, rule.name_span.1,
+                                );
+                                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                                    uri: entry.uri.clone(),
+                                    range,
+                                })));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(None)
     }
 
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
@@ -203,7 +400,45 @@ impl LanguageServer for BbnfLanguageServer {
         let Some(state) = docs.get(&uri) else {
             return Ok(None);
         };
-        Ok(features::references::references(state, &uri, pos, include_decl))
+        // Start with local references.
+        let mut locations = features::references::references(state, &uri, pos, include_decl)
+            .unwrap_or_default();
+
+        // Determine the symbol name for cross-file search.
+        let offset = crate::analysis::position_to_offset(&state.text, pos);
+        let symbol = crate::analysis::symbol_at_offset(&state.info, offset);
+        let name = match &symbol {
+            Some(crate::analysis::SymbolAtOffset::RuleDefinition(rule)) => Some(rule.name.clone()),
+            Some(crate::analysis::SymbolAtOffset::RuleReference { name, .. }) => Some(name.clone()),
+            None => None,
+        };
+
+        // Cross-file: search all other open documents for references.
+        if let Some(name) = name {
+            for (doc_uri, doc_state) in docs.iter() {
+                if doc_uri == &uri {
+                    continue; // Already searched.
+                }
+                for rule in &doc_state.info.rules {
+                    for refinfo in &rule.references {
+                        if refinfo.name == name {
+                            locations.push(Location {
+                                uri: doc_uri.clone(),
+                                range: crate::analysis::span_to_range(
+                                    &doc_state.text, refinfo.span.0, refinfo.span.1,
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        if locations.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(locations))
+        }
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
@@ -236,7 +471,47 @@ impl LanguageServer for BbnfLanguageServer {
         let Some(state) = docs.get(&uri) else {
             return Ok(None);
         };
-        Ok(Some(features::completion::completion(state)))
+
+        let mut response = features::completion::completion(state);
+
+        // Add imported rules to completion.
+        for import_info in &state.info.imports {
+            if let Some(import_uri) = Self::resolve_import_uri(&uri, &import_info.path) {
+                if let Some(target_state) = docs.get(&import_uri) {
+                    let source_file = import_info.path.rsplit('/').next().unwrap_or(&import_info.path);
+                    if let Some(ref items) = import_info.items {
+                        // Selective: only listed names.
+                        for name in items {
+                            if let Some(&idx) = target_state.info.rule_index.get(name.as_str()) {
+                                let rule = &target_state.info.rules[idx];
+                                if let CompletionResponse::Array(ref mut arr) = response {
+                                    arr.push(CompletionItem {
+                                        label: rule.name.clone(),
+                                        kind: Some(CompletionItemKind::FUNCTION),
+                                        detail: Some(format!("{} (from {})", rule.rhs_text, source_file)),
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        // Glob: all rules.
+                        for rule in &target_state.info.rules {
+                            if let CompletionResponse::Array(ref mut arr) = response {
+                                arr.push(CompletionItem {
+                                    label: rule.name.clone(),
+                                    kind: Some(CompletionItemKind::FUNCTION),
+                                    detail: Some(format!("{} (from {})", rule.rhs_text, source_file)),
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(Some(response))
     }
 
     async fn document_symbol(

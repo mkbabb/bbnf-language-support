@@ -39,4 +39,11 @@ rhs = alternation ;
 
 rule = lhs, "=" ?w, rhs ?w, ( ";" | "." ) ;
 
-grammar =  ( comment ? , rule ?w , comment ? ) * ;
+import_path = "\"" , /(\\.|[^"\\])*/ , "\"" ;
+import_items = "{" ?w , identifier , ( "," ?w , identifier ) * ?w , "}" ;
+import_directive = "@import" ?w , (
+      import_items ?w , "from" ?w , import_path
+    | import_path
+) , ( ";" | "." ) ? ;
+
+grammar = ( comment ? , ( import_directive | rule ) ?w , comment ? ) * ;

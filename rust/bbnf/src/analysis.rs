@@ -437,45 +437,84 @@ pub struct FirstSets<'a> {
 
 /// Compute FIRST sets and nullability for all nonterminals in the grammar.
 ///
-/// Uses fixed-point iteration: we repeatedly scan every rule, updating FIRST
-/// sets and nullability until no changes occur.
-pub fn compute_first_sets<'a>(ast: &'a AST<'a>, deps: &Dependencies<'a>) -> FirstSets<'a> {
+/// Computes FIRST sets using SCC-ordered processing for O(n+E) complexity.
+///
+/// Processes SCCs in reverse-topological order (leaves first). For acyclic
+/// singletons, FIRST is computed in a single pass (all deps already done).
+/// For cyclic SCCs, fixed-point iteration is applied only within the SCC.
+pub fn compute_first_sets<'a>(
+    ast: &'a AST<'a>,
+    deps: &Dependencies<'a>,
+    scc_result: &SccResult<'a>,
+) -> FirstSets<'a> {
     let mut first: HashMap<&'a Expression<'a>, CharSet> = HashMap::new();
     let mut nullable: HashSet<&'a Expression<'a>> = HashSet::new();
+
+    // Build name-to-key index for O(1) nonterminal lookup.
+    let name_to_key: HashMap<&str, &'a Expression<'a>> = ast
+        .keys()
+        .filter_map(|lhs| match lhs {
+            Expression::Nonterminal(tok) => Some((tok.value.as_ref(), lhs)),
+            _ => None,
+        })
+        .collect();
+
+    // Build expression-to-RHS lookup for direct access within SCC processing.
+    let expr_to_rhs: HashMap<&'a Expression<'a>, &'a Expression<'a>> = ast
+        .iter()
+        .map(|(lhs, rhs)| (lhs, rhs))
+        .collect();
 
     // Initialize entries for every nonterminal in the AST.
     for (lhs, _) in ast {
         first.entry(lhs).or_insert_with(CharSet::new);
     }
 
-    // Fixed-point iteration.
-    loop {
-        let mut changed = false;
-
-        for (lhs, rhs) in ast {
-            // Unwrap the Rule wrapper to get the actual RHS expression.
-            let rhs_expr = unwrap_rule(rhs);
-
-            let mut expr_first = CharSet::new();
-            let expr_nullable = compute_expr_first(rhs_expr, &first, &nullable, ast, &mut expr_first);
-
-            // Merge into this nonterminal's FIRST set.
-            let entry = first.entry(lhs).or_insert_with(CharSet::new);
-            let old_bits = entry.bits;
-            entry.union(&expr_first);
-            if entry.bits != old_bits {
-                changed = true;
+    // Process SCCs in reverse-topological order (leaves first).
+    // This ensures all dependencies of acyclic singletons are already computed.
+    for scc in &scc_result.sccs {
+        if scc.len() == 1 && !scc_result.cyclic_rules.contains(scc[0]) {
+            // Acyclic singleton: compute FIRST in one pass (all deps already done).
+            let lhs = scc[0];
+            if let Some(&rhs) = expr_to_rhs.get(lhs) {
+                let rhs_expr = unwrap_rule(rhs);
+                let mut expr_first = CharSet::new();
+                let expr_nullable = compute_expr_first(
+                    rhs_expr, &first, &nullable, &name_to_key, &mut expr_first,
+                );
+                let entry = first.entry(lhs).or_insert_with(CharSet::new);
+                entry.union(&expr_first);
+                if expr_nullable {
+                    nullable.insert(lhs);
+                }
             }
-
-            // Update nullability.
-            if expr_nullable && !nullable.contains(lhs) {
-                nullable.insert(lhs);
-                changed = true;
+        } else {
+            // Cyclic SCC: fixed-point iteration only within this SCC.
+            loop {
+                let mut changed = false;
+                for &lhs in scc {
+                    if let Some(&rhs) = expr_to_rhs.get(lhs) {
+                        let rhs_expr = unwrap_rule(rhs);
+                        let mut expr_first = CharSet::new();
+                        let expr_nullable = compute_expr_first(
+                            rhs_expr, &first, &nullable, &name_to_key, &mut expr_first,
+                        );
+                        let entry = first.entry(lhs).or_insert_with(CharSet::new);
+                        let old_bits = entry.bits;
+                        entry.union(&expr_first);
+                        if entry.bits != old_bits {
+                            changed = true;
+                        }
+                        if expr_nullable && !nullable.contains(lhs) {
+                            nullable.insert(lhs);
+                            changed = true;
+                        }
+                    }
+                }
+                if !changed {
+                    break;
+                }
             }
-        }
-
-        if !changed {
-            break;
         }
     }
 
@@ -496,11 +535,13 @@ fn unwrap_rule<'a>(expr: &'a Expression<'a>) -> &'a Expression<'a> {
 
 /// Recursively compute the FIRST set of an expression, returning whether the
 /// expression is nullable.
+///
+/// Uses `name_to_key` for O(1) nonterminal lookup instead of scanning the AST.
 fn compute_expr_first<'a>(
     expr: &'a Expression<'a>,
     first_sets: &HashMap<&'a Expression<'a>, CharSet>,
     nullable_set: &HashSet<&'a Expression<'a>>,
-    ast: &'a AST<'a>,
+    name_to_key: &HashMap<&str, &'a Expression<'a>>,
     out: &mut CharSet,
 ) -> bool {
     match expr {
@@ -521,23 +562,17 @@ fn compute_expr_first<'a>(
                 out.union(&cs);
             }
             // Conservative: assume regex is not nullable unless it clearly is.
-            // A pattern that starts with an optional/star quantifier could be nullable,
-            // but we conservatively say false.
             false
         }
 
         Expression::Nonterminal(token) => {
             let name: &str = &token.value;
-            // Look up this nonterminal in the AST to find its canonical key.
-            for (key, _) in ast {
-                if let Expression::Nonterminal(k_token) = key {
-                    if k_token.value.as_ref() == name {
-                        if let Some(fs) = first_sets.get(key) {
-                            out.union(fs);
-                        }
-                        return nullable_set.contains(key);
-                    }
+            // O(1) lookup via name index.
+            if let Some(&key) = name_to_key.get(name) {
+                if let Some(fs) = first_sets.get(key) {
+                    out.union(fs);
                 }
+                return nullable_set.contains(key);
             }
             false
         }
@@ -547,7 +582,7 @@ fn compute_expr_first<'a>(
             // The concatenation is nullable only if ALL elements are nullable.
             let exprs = &token.value;
             for child in exprs {
-                let child_nullable = compute_expr_first(child, first_sets, nullable_set, ast, out);
+                let child_nullable = compute_expr_first(child, first_sets, nullable_set, name_to_key, out);
                 if !child_nullable {
                     return false;
                 }
@@ -561,7 +596,7 @@ fn compute_expr_first<'a>(
             let exprs = &token.value;
             let mut any_nullable = false;
             for child in exprs {
-                let child_nullable = compute_expr_first(child, first_sets, nullable_set, ast, out);
+                let child_nullable = compute_expr_first(child, first_sets, nullable_set, name_to_key, out);
                 if child_nullable {
                     any_nullable = true;
                 }
@@ -571,18 +606,18 @@ fn compute_expr_first<'a>(
 
         Expression::Optional(inner) | Expression::Many(inner) | Expression::OptionalWhitespace(inner) => {
             // Always nullable. FIRST from inner.
-            compute_expr_first(&inner.value, first_sets, nullable_set, ast, out);
+            compute_expr_first(&inner.value, first_sets, nullable_set, name_to_key, out);
             true
         }
 
         Expression::Many1(inner) => {
             // Not nullable (requires at least one). FIRST from inner.
-            compute_expr_first(&inner.value, first_sets, nullable_set, ast, out)
+            compute_expr_first(&inner.value, first_sets, nullable_set, name_to_key, out)
         }
 
         Expression::Group(inner) => {
             // Delegate to inner expression.
-            compute_expr_first(&inner.value, first_sets, nullable_set, ast, out)
+            compute_expr_first(&inner.value, first_sets, nullable_set, name_to_key, out)
         }
 
         Expression::Epsilon(_) => {
@@ -592,34 +627,32 @@ fn compute_expr_first<'a>(
 
         Expression::Rule(inner, _) => {
             // Unwrap Rule wrapper.
-            compute_expr_first(inner, first_sets, nullable_set, ast, out)
+            compute_expr_first(inner, first_sets, nullable_set, name_to_key, out)
         }
 
         Expression::Skip(left, _right) => {
             // `left << right`: parses left then right, returns left's value.
             // FIRST comes from left.
-            compute_expr_first(&left.value, first_sets, nullable_set, ast, out)
+            compute_expr_first(&left.value, first_sets, nullable_set, name_to_key, out)
         }
 
         Expression::Next(_left, right) => {
             // `left >> right`: parses left then right, returns right's value.
             // FIRST comes from left.
-            // For simplicity, treat as concatenation: FIRST of left, nullable only
-            // if left is nullable (then we'd also need right's FIRST).
-            let left_nullable = compute_expr_first(&_left.value, first_sets, nullable_set, ast, out);
+            let left_nullable = compute_expr_first(&_left.value, first_sets, nullable_set, name_to_key, out);
             if left_nullable {
-                compute_expr_first(&right.value, first_sets, nullable_set, ast, out);
+                compute_expr_first(&right.value, first_sets, nullable_set, name_to_key, out);
             }
             false // These binary ops generally aren't nullable.
         }
 
         Expression::Minus(left, _right) => {
             // `left - right`: parses left but not right. FIRST from left.
-            compute_expr_first(&left.value, first_sets, nullable_set, ast, out)
+            compute_expr_first(&left.value, first_sets, nullable_set, name_to_key, out)
         }
 
         Expression::MappedExpression((inner, _)) | Expression::DebugExpression((inner, _)) => {
-            compute_expr_first(&inner.value, first_sets, nullable_set, ast, out)
+            compute_expr_first(&inner.value, first_sets, nullable_set, name_to_key, out)
         }
 
         Expression::MappingFn(_) | Expression::ProductionRule(_, _) => {
@@ -965,12 +998,21 @@ pub fn build_dispatch_table<'a>(
         return None;
     }
 
+    // Build name-to-key index for O(1) nonterminal lookup.
+    let name_to_key: HashMap<&str, &'a Expression<'a>> = ast
+        .keys()
+        .filter_map(|lhs| match lhs {
+            Expression::Nonterminal(tok) => Some((tok.value.as_ref(), lhs)),
+            _ => None,
+        })
+        .collect();
+
     // Compute FIRST sets for each alternative expression.
     let mut alt_first_sets: Vec<CharSet> = Vec::with_capacity(alternatives.len());
 
     for &alt in alternatives {
         let mut cs = CharSet::new();
-        let is_nullable = compute_expr_first(alt, &first_sets.first, &first_sets.nullable, ast, &mut cs);
+        let is_nullable = compute_expr_first(alt, &first_sets.first, &first_sets.nullable, &name_to_key, &mut cs);
 
         // Condition 1: non-nullable.
         if is_nullable {

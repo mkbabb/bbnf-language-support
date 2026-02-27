@@ -6,9 +6,41 @@ set difference, and optional mapping functions. BBNF grammars are the shared con
 between the TypeScript and Rust implementations of the `parse-that` parser combinator
 library.
 
-A BBNF file consists of one or more **production rules**, interleaved with comments.
-Each rule defines a named nonterminal in terms of an expression built from terminals,
-nonterminal references, and operators.
+A BBNF file consists of optional **import directives** followed by one or more
+**production rules**, interleaved with comments. Each rule defines a named nonterminal
+in terms of an expression built from terminals, nonterminal references, and operators.
+
+## Import Directives
+
+Import directives allow a grammar to reference rules defined in other `.bbnf` files.
+They must appear at the top of the file, before any production rules.
+
+### Whole-file import
+
+Imports all rules from the specified file into the local scope:
+
+```
+@import "path/to/base.bbnf" ;
+```
+
+### Selective import
+
+Imports only the named rules from the specified file:
+
+```
+@import { number, integer, whitespace } from "path/to/common.bbnf" ;
+```
+
+### Semantics
+
+- **Path resolution**: Paths are relative to the importing file's directory. If no
+  extension is given, `.bbnf` is appended.
+- **Non-transitive**: If A imports B and B imports C, A does **not** see C's rules.
+  A must import C explicitly.
+- **Local shadows imports**: A locally defined rule takes precedence over an imported
+  rule of the same name (with a warning).
+- **Circular imports are errors**: Detected via DFS on-stack check.
+- **Name conflicts are errors**: Two imports defining the same rule name is an error.
 
 ## Production Rules
 

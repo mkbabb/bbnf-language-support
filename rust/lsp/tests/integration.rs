@@ -1042,3 +1042,219 @@ value = string | number | object | array | bool | null;"#;
 
     shutdown(&mut stdin, &mut stdout, child);
 }
+
+// ============================================================================
+// Cross-file import tests
+// ============================================================================
+
+#[test]
+fn test_import_suppresses_undefined_rule() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Open the "base" document first.
+    let base_grammar = "number = /[0-9]+/;\nstring = /[a-zA-Z]+/;";
+    let _diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///base.bbnf", base_grammar,
+    );
+
+    // Open the "main" document that imports base.
+    let main_grammar = r#"@import "base.bbnf";
+value = number | string;"#;
+    let diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///main.bbnf", main_grammar,
+    );
+    eprintln!("Import diagnostics: {}", diag);
+
+    // The "Undefined rule" diagnostics for `number` and `string` should be suppressed
+    // because they are imported from base.bbnf.
+    assert!(
+        !diag.contains("Undefined rule"),
+        "Should NOT have undefined rule diagnostics for imported rules, got: {}",
+        diag
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_import_selective_suppresses_only_named_rules() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Open the "base" document with three rules.
+    let base_grammar = "number = /[0-9]+/;\nstring = /[a-zA-Z]+/;\nbool = \"true\" | \"false\";";
+    let _diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///base.bbnf", base_grammar,
+    );
+
+    // Main imports only `number` selectively, but references `string` too.
+    let main_grammar = r#"@import { number } from "base.bbnf";
+value = number | string;"#;
+    let diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///main.bbnf", main_grammar,
+    );
+    eprintln!("Selective import diagnostics: {}", diag);
+
+    // `number` should be suppressed, but `string` should still be undefined.
+    assert!(
+        diag.contains("Undefined rule"),
+        "Should have undefined rule for non-imported `string`, got: {}",
+        diag
+    );
+    assert!(
+        diag.contains("string"),
+        "Undefined rule should be about `string`, got: {}",
+        diag
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_cross_file_goto_definition() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Open the base document.
+    let base_grammar = "number = /[0-9]+/;";
+    let _diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///base.bbnf", base_grammar,
+    );
+
+    // Open main that imports base and references `number`.
+    let main_grammar = r#"@import "base.bbnf";
+value = number;"#;
+    let _diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///main.bbnf", main_grammar,
+    );
+
+    // Go to definition of "number" at line 1, char 10.
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":60,"method":"textDocument/definition","params":{"textDocument":{"uri":"file:///main.bbnf"},"position":{"line":1,"character":10}}}"#,
+    );
+    let resp = read_response(&mut stdout, 60);
+    eprintln!("Cross-file goto def response: {}", resp);
+
+    // Should point to base.bbnf where number is defined.
+    assert!(
+        resp.contains("base.bbnf"),
+        "Expected definition in base.bbnf, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_cross_file_references() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Open base document with `number` rule.
+    let base_grammar = "number = /[0-9]+/;";
+    let _diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///base.bbnf", base_grammar,
+    );
+
+    // Open main that references `number`.
+    let main_grammar = r#"@import "base.bbnf";
+value = number;"#;
+    let _diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///main.bbnf", main_grammar,
+    );
+
+    // Find references to `number` from its definition in base.bbnf (line 0, char 2).
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":61,"method":"textDocument/references","params":{"textDocument":{"uri":"file:///base.bbnf"},"position":{"line":0,"character":2},"context":{"includeDeclaration":true}}}"#,
+    );
+    let resp = read_response(&mut stdout, 61);
+    eprintln!("Cross-file references response: {}", resp);
+
+    // Should find references in both base.bbnf and main.bbnf.
+    assert!(
+        resp.contains("base.bbnf"),
+        "Expected reference in base.bbnf, got: {}",
+        resp
+    );
+    assert!(
+        resp.contains("main.bbnf"),
+        "Expected cross-file reference in main.bbnf, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_cross_file_completion_includes_imported_rules() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Open base document with rules.
+    let base_grammar = "number = /[0-9]+/;\nstring = /[a-zA-Z]+/;";
+    let _diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///base.bbnf", base_grammar,
+    );
+
+    // Open main that imports base and has a partially-written rule.
+    let main_grammar = r#"@import "base.bbnf";
+value = ;"#;
+    let _diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///main.bbnf", main_grammar,
+    );
+
+    // Request completion at the cursor position in `value = |`.
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":62,"method":"textDocument/completion","params":{"textDocument":{"uri":"file:///main.bbnf"},"position":{"line":1,"character":8}}}"#,
+    );
+    let resp = read_response(&mut stdout, 62);
+    eprintln!("Cross-file completion response: {}", resp);
+
+    // Should include imported rules `number` and `string` in completions.
+    assert!(
+        resp.contains("number"),
+        "Expected 'number' in completions from import, got: {}",
+        resp
+    );
+    assert!(
+        resp.contains("string"),
+        "Expected 'string' in completions from import, got: {}",
+        resp
+    );
+    // Should also mention the source file.
+    assert!(
+        resp.contains("base.bbnf"),
+        "Expected source file annotation in completion detail, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_import_parser_valid_syntax() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Test that @import directives parse without errors.
+    let grammar = r#"@import "other.bbnf";
+@import { a, b } from "lib.bbnf";
+value = a | b;"#;
+    let diag = open_doc_and_wait_diagnostics(
+        &mut stdin, &mut stdout, "file:///test.bbnf", grammar,
+    );
+    eprintln!("Import syntax diagnostics: {}", diag);
+
+    // Should not have parse errors.
+    assert!(
+        !diag.contains("\"severity\":1"),
+        "Import syntax should parse without errors, got: {}",
+        diag
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}

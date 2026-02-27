@@ -304,7 +304,7 @@ pub fn bbnf_derive(input: TokenStream) -> TokenStream {
     let non_acyclic_deps = calculate_non_acyclic_deps_scc(&deps, &acyclic_deps);
 
     // Phase 1.2: Compute FIRST sets for dispatch table generation
-    let first_sets = compute_first_sets(&ast, &deps);
+    let first_sets = compute_first_sets(&ast, &deps, &scc_result);
 
     // Phase 1.6: Reference counting and alias detection
     let ref_counts = compute_ref_counts(&deps);

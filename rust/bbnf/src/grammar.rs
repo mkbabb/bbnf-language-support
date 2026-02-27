@@ -87,6 +87,25 @@ impl<'a, T> Token<'a, T> {
 
 pub type AST<'a> = IndexMap<Expression<'a>, Expression<'a>>;
 
+/// An `@import` directive at the top of a grammar file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportDirective<'a> {
+    /// The path string from the import (relative to importing file).
+    pub path: Cow<'a, str>,
+    /// The byte-offset span of the entire import directive.
+    pub span: Span<'a>,
+    /// If `Some`, selective import: only these rule names are imported.
+    /// If `None`, glob import: all rules are imported.
+    pub items: Option<Vec<Cow<'a, str>>>,
+}
+
+/// The result of parsing a complete grammar file: imports + rules.
+#[derive(Debug, Clone)]
+pub struct ParsedGrammar<'a> {
+    pub imports: Vec<ImportDirective<'a>>,
+    pub rules: AST<'a>,
+}
+
 pub fn set_expression_comments<'a>(expr: &mut Expression<'a>, comments: Comments<'a>) {
     match expr {
         Expression::Literal(token) | Expression::Nonterminal(token) => {
@@ -401,6 +420,74 @@ impl<'a> BBNFGrammar<'a> {
         Self::trim_comment(production_rule, comment.opt())
     }
 
+    /// Parse an import path string: `"path/to/file.bbnf"`.
+    fn import_path() -> Parser<'a, Cow<'a, str>> {
+        let not_quote = take_while_span(|c| c != '"' && c != '\\');
+        let path_content = (not_quote | escaped_span()).many_span(..);
+        path_content
+            .wrap_span(string_span("\""), string_span("\""))
+            .map(|s| Cow::Borrowed(s.as_str()))
+    }
+
+    /// Parse a list of identifiers in `{ a, b, c }` form.
+    fn import_items() -> Parser<'a, Vec<Cow<'a, str>>> {
+        let ident = Self::identifier().map(|s: Span<'a>| Cow::Borrowed(s.as_str()));
+
+        string("{")
+            .trim_whitespace()
+            .next(
+                ident
+                    .sep_by(string(",").trim_whitespace(), 1..)
+                    .trim_whitespace(),
+            )
+            .skip(string("}").trim_whitespace())
+    }
+
+    /// Parse an `@import` directive:
+    /// - `@import "path" ;`
+    /// - `@import { a, b } from "path" ;`
+    fn import_directive() -> Parser<'a, ImportDirective<'a>> {
+        let selective = Self::import_items()
+            .skip(string("from").trim_whitespace())
+            .then(Self::import_path())
+            .map(|(items, path)| (Some(items), path));
+
+        let glob = Self::import_path().map(|path| (None, path));
+
+        string("@import")
+            .trim_whitespace()
+            .next(selective | glob)
+            .skip(any_span(&[";", "."]).opt().trim_whitespace())
+            .map_with_state(|(items, path), prev_offset, state| ImportDirective {
+                path,
+                span: Span::new(prev_offset, state.offset, state.src),
+                items,
+            })
+    }
+
+    /// Parse a grammar file: zero or more import directives followed by rules.
+    /// Returns a `ParsedGrammar` with both imports and the AST.
+    pub fn grammar_with_imports() -> Parser<'a, ParsedGrammar<'a>> {
+        let import = Self::import_directive().trim_whitespace();
+        let rule = Self::production_rule().trim_whitespace();
+
+        import.many(..).then(rule.many(..)).map(|(imports, rules)| {
+            let ast: AST<'a> = rules
+                .into_iter()
+                .map(|expr| match expr {
+                    Expression::ProductionRule(lhs, rhs) => (*lhs, *rhs),
+                    _ => unreachable!(),
+                })
+                .collect();
+            ParsedGrammar {
+                imports,
+                rules: ast,
+            }
+        })
+    }
+
+    /// Parse a grammar file (rules only, no imports). Original API for backward
+    /// compatibility with proc-macro and existing consumers.
     pub fn grammar() -> Parser<'a, AST<'a>> {
         let rule = Self::production_rule().trim_whitespace().many(..);
 

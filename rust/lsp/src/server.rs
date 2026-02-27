@@ -36,6 +36,20 @@ impl BbnfLanguageServer {
             .publish_diagnostics(uri, diagnostics, None)
             .await;
     }
+
+    /// Apply incremental text edits to the stored document text.
+    fn apply_incremental_changes(text: &mut String, changes: Vec<TextDocumentContentChangeEvent>) {
+        for change in changes {
+            if let Some(range) = change.range {
+                let start = crate::analysis::position_to_offset(text, range.start);
+                let end = crate::analysis::position_to_offset(text, range.end);
+                text.replace_range(start..end, &change.text);
+            } else {
+                // Full content replacement.
+                *text = change.text;
+            }
+        }
+    }
 }
 
 /// Semantic token legend shared between server and client.
@@ -62,7 +76,7 @@ impl LanguageServer for BbnfLanguageServer {
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
+                    TextDocumentSyncKind::INCREMENTAL,
                 )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
@@ -89,6 +103,13 @@ impl LanguageServer for BbnfLanguageServer {
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 code_action_provider: Some(CodeActionProviderCapability::Simple(true)),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                document_range_formatting_provider: Some(OneOf::Left(true)),
+                document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
+                    first_trigger_character: ";".into(),
+                    more_trigger_character: None,
+                }),
+                inlay_hint_provider: Some(OneOf::Left(true)),
+                selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensOptions(
                         SemanticTokensOptions {
@@ -121,9 +142,27 @@ impl LanguageServer for BbnfLanguageServer {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        if let Some(change) = params.content_changes.into_iter().next_back() {
-            self.on_change(params.text_document.uri, change.text).await;
+        let uri = params.text_document.uri;
+        let changes = params.content_changes;
+
+        // Apply incremental edits to the stored text, then re-analyze.
+        let new_text;
+        {
+            let mut docs = self.documents.write().await;
+            if let Some(state) = docs.get_mut(&uri) {
+                Self::apply_incremental_changes(&mut state.text, changes);
+                new_text = state.text.clone();
+            } else {
+                // Document not tracked yet — take the last change as full text.
+                new_text = changes
+                    .into_iter()
+                    .last()
+                    .map(|c| c.text)
+                    .unwrap_or_default();
+            }
         }
+
+        self.on_change(uri, new_text).await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
@@ -264,5 +303,56 @@ impl LanguageServer for BbnfLanguageServer {
             return Ok(None);
         };
         Ok(Some(features::semantic_tokens::semantic_tokens_full(state)))
+    }
+
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let uri = params.text_document.uri;
+        let docs = self.documents.read().await;
+        let Some(state) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        Ok(Some(features::inlay_hints::inlay_hints(state, params.range)))
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        let uri = params.text_document.uri;
+        let docs = self.documents.read().await;
+        let Some(state) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        Ok(Some(features::selection_range::selection_ranges(
+            state,
+            params.positions,
+        )))
+    }
+
+    async fn range_formatting(
+        &self,
+        params: DocumentRangeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let uri = params.text_document.uri;
+        let docs = self.documents.read().await;
+        let Some(state) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        Ok(features::formatting::format_range(state, params.range))
+    }
+
+    async fn on_type_formatting(
+        &self,
+        params: DocumentOnTypeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let docs = self.documents.read().await;
+        let Some(state) = docs.get(&uri) else {
+            return Ok(None);
+        };
+        Ok(features::formatting::format_on_type(
+            state,
+            params.text_document_position.position,
+        ))
     }
 }

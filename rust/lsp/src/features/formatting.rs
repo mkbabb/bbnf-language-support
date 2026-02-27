@@ -7,6 +7,7 @@ fn get_inner_expression<'a, T>(tok: &'a Token<'a, T>) -> &'a T {
     &tok.value
 }
 
+use crate::analysis::{position_to_offset, span_to_range};
 use crate::state::DocumentState;
 
 const MAX_WIDTH: usize = 66;
@@ -24,6 +25,77 @@ pub fn format_document(state: &DocumentState) -> Option<Vec<TextEdit>> {
         range: Range::new(Position::new(0, 0), end),
         new_text: formatted,
     }])
+}
+
+/// Format only rules that overlap the selected range.
+pub fn format_range(state: &DocumentState, range: Range) -> Option<Vec<TextEdit>> {
+    let parser = BBNFGrammar::grammar();
+    let (result, _) = parser.parse_return_state(&state.text);
+    let ast = result?;
+
+    let range_start = position_to_offset(&state.text, range.start);
+    let range_end = position_to_offset(&state.text, range.end);
+
+    let mut edits = Vec::new();
+
+    for (lhs, rhs) in ast.iter() {
+        if let Expression::Nonterminal(Token { value: name, span: name_span, .. }) = lhs {
+            let rule_start = name_span.start;
+            let rule_end = crate::state::compute_expression_end_pub(rhs)
+                .unwrap_or(name_span.end);
+
+            // Skip rules that don't overlap the selection.
+            if rule_end < range_start || rule_start > range_end {
+                continue;
+            }
+
+            let rhs_str = format_expression(rhs, 0);
+            let formatted = format!("{} = {};\n", name, rhs_str);
+
+            // Find the full rule span including the semicolon and any trailing whitespace.
+            let text_after_rule = &state.text[rule_end..];
+            let extra = text_after_rule
+                .find(';')
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            let full_end = rule_end + extra;
+
+            // Skip trailing whitespace/newlines after semicolon.
+            let trailing = state.text[full_end..]
+                .chars()
+                .take_while(|c| c.is_whitespace())
+                .count();
+            let full_end = full_end + trailing;
+
+            let edit_range = span_to_range(&state.text, rule_start, full_end);
+            edits.push(TextEdit {
+                range: edit_range,
+                new_text: formatted,
+            });
+        }
+    }
+
+    if edits.is_empty() {
+        None
+    } else {
+        Some(edits)
+    }
+}
+
+/// Format the rule that was just completed (triggered by typing `;`).
+pub fn format_on_type(state: &DocumentState, position: Position) -> Option<Vec<TextEdit>> {
+    let offset = position_to_offset(&state.text, position);
+
+    // Find which rule the cursor is in.
+    for rule in &state.info.rules {
+        if offset >= rule.full_span.0 && offset <= rule.full_span.1 + 2 {
+            // Found the rule — format just this one by delegating to format_range.
+            let rule_range = span_to_range(&state.text, rule.full_span.0, rule.full_span.1);
+            return format_range(state, rule_range);
+        }
+    }
+
+    None
 }
 
 fn offset_to_end(text: &str) -> Position {

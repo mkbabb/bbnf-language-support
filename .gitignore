@@ -4,3 +4,5 @@ coverage/
 data/
 .vscode/
 *.vsix
+rust/target/
+dist/

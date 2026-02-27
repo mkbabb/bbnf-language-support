@@ -618,3 +618,142 @@ fn test_did_change() {
 
     shutdown(&mut stdin, &mut stdout, child);
 }
+
+// ============================================================================
+// New feature tests
+// ============================================================================
+
+#[test]
+fn test_inlay_hints() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    let grammar = "number = /[0-9]+/;\nvalue = number | \"hello\";";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":30,"method":"textDocument/inlayHint","params":{"textDocument":{"uri":"file:///test.bbnf"},"range":{"start":{"line":0,"character":0},"end":{"line":1,"character":100}}}}"#,
+    );
+    let resp = read_response(&mut stdout, 30);
+    eprintln!("Inlay hints response: {}", resp);
+    assert!(
+        resp.contains("FIRST"),
+        "Expected FIRST set in inlay hints, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_initialize_new_capabilities() {
+    let (mut stdin, mut stdout, child) = start_server();
+    let resp = initialize(&mut stdin, &mut stdout);
+
+    assert!(resp.contains("inlayHintProvider"), "missing inlay hints");
+    assert!(resp.contains("selectionRangeProvider"), "missing selection range");
+    assert!(resp.contains("documentRangeFormattingProvider"), "missing range formatting");
+    assert!(resp.contains("documentOnTypeFormattingProvider"), "missing on-type formatting");
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_selection_range() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    let grammar = "value = number | \"hello\";\nnumber = /[0-9]+/;";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    // Request selection range at the "number" reference position (line 0, char 10)
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":31,"method":"textDocument/selectionRange","params":{"textDocument":{"uri":"file:///test.bbnf"},"positions":[{"line":0,"character":10}]}}"#,
+    );
+    let resp = read_response(&mut stdout, 31);
+    eprintln!("Selection range response: {}", resp);
+    assert!(
+        resp.contains("\"id\":31"),
+        "Expected selection range response, got: {}",
+        resp
+    );
+    // Should contain nested ranges (at least one range object).
+    assert!(
+        resp.contains("range"),
+        "Expected range in response, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_range_formatting() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    let grammar = "number = /[0-9]+/ ;\nvalue = number | \"hello\" ;";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    // Format only the first line
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":32,"method":"textDocument/rangeFormatting","params":{"textDocument":{"uri":"file:///test.bbnf"},"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":100}},"options":{"tabSize":4,"insertSpaces":true}}}"#,
+    );
+    let resp = read_response(&mut stdout, 32);
+    eprintln!("Range formatting response: {}", resp);
+    assert!(
+        resp.contains("\"id\":32"),
+        "Expected range formatting response, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_on_type_formatting() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    let grammar = "number = /[0-9]+/ ;";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    // Trigger on-type formatting after typing ';'
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":33,"method":"textDocument/onTypeFormatting","params":{"textDocument":{"uri":"file:///test.bbnf"},"position":{"line":0,"character":19},"ch":";","options":{"tabSize":4,"insertSpaces":true}}}"#,
+    );
+    let resp = read_response(&mut stdout, 33);
+    eprintln!("On-type formatting response: {}", resp);
+    assert!(
+        resp.contains("\"id\":33"),
+        "Expected on-type formatting response, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_incremental_change() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Start with valid grammar
+    let grammar = "number = /[0-9]+/;";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    // Send an incremental change: insert "value = number;\n" at the beginning
+    let change = r#"{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///test.bbnf","version":2},"contentChanges":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"text":"value = number;\n"}]}}"#;
+    send_lsp(&mut stdin, change);
+    let diag = read_until_contains(&mut stdout, "publishDiagnostics");
+    eprintln!("Incremental change diagnostics: {}", diag);
+
+    // Should now see the "number" reference resolved (no undefined error).
+    // value references number, number is defined — all good.
+
+    shutdown(&mut stdin, &mut stdout, child);
+}

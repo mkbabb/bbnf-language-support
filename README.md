@@ -1,50 +1,72 @@
-# BBNF lang
+# bbnf-lang
 
-![image](icons/bbnf-banner.png)
+_Better Backus-Naur Form_ — a monorepo for the BBNF grammar ecosystem.
 
-_Better Backus-Naur Form_
+BBNF is an extension to EBNF for defining context-free grammars, used by the
+[`parse-that`](https://github.com/mkbabb/parse-that) parser combinator library.
 
----
+## Structure
 
-An extension to EBNF that allows for the definition of context-free grammars. Used
-within the [`parse-that`](https://github.com/mkbabb/parse-that) parser generator. Herein
-is the VS Code language support for BBNF.
+```
+rust/                   Rust workspace
+  bbnf/                 BBNF grammar framework (lib)
+  bbnf-derive/          Proc-macro derive for BBNF
+  lsp/                  Language Server Protocol server
+typescript/             TS library (@mkbabb/bbnf-lang)
+prettier-plugin-bbnf/   Prettier plugin for .bbnf files
+extension/              VS Code extension (LSP client)
+grammar/                Shared BBNF grammar files
+```
 
-## Features
+## VS Code Extension
 
--   Syntax highlighting 🌈
--   Code formatting 🎨
--   Intellisense 🧠
--   Folding regions 📦
--   Error squiggles for various malformations 🚫
--   Left-recursion detection & elimination ⚙️
--   Topological rule sorting 📐
--   _SOON_ - Grammar transformation 🧪
-    -   Converting to EBNF, ABNF, etc.
+Full language support for `.bbnf` files:
 
-### Intellisense, syntax highlighting & error reporting
+- Syntax highlighting
+- Diagnostics (parse errors, undefined/unused rules, left recursion)
+- Go-to-definition, references, rename
+- Hover with rule preview
+- Completions
+- Document symbols, code lens, folding
+- Code actions
+- Document & range formatting
+- On-type formatting (`;` trigger)
+- Semantic tokens
+- Inlay hints (FIRST sets, nullability)
+- Selection range (expand/shrink selection)
 
-### Code formatting
+## Build & Test
 
-Powered by [`prettier`](https://prettier.io/) and
-[`prettier-plugin-bbnf`](./src/prettier-plugin-bbnf/index.ts). Takes this:
+### Rust
 
-And converts it to this:
+```bash
+cd rust
+cargo test --workspace    # requires nightly
+cargo build --release -p bbnf-lsp
+```
 
-### Left-recursion detection & elimination; Topological rule sorting
+### TypeScript (bbnf-lang library)
 
-If chosen, the extension will automatically detect and eliminate left-recursion in your
-grammar. It will also sort your rules topologically, so that rules that depend on other
-rules are defined after the rules they depend on. This is useful for the parser
-generator, which will generate a parser that is more efficient if the rules are defined
-in this order.
+```bash
+cd typescript
+npm ci && npm test
+```
 
-## About
+### Prettier Plugin
 
-Sort of a real-world example of a modern VS Code extension using the newly formulated
-LSP (Language Server Protocol) and the new VS Code API. That notwithstanding, this is
-still fairly useful for anyone looking to write a grammar using a BNF-like syntax.
+```bash
+npm ci                # from repo root (workspace install)
+cd typescript && npm run build
+cd ../prettier-plugin-bbnf && npm test
+```
 
-Created because I was tired of writing grammar files with the fairly cumbersome EBNF
-syntax. And moreover had no way of validating, formatting, or otherwise working with my
-grammar files. VS code's got me spoiled 😭.
+### Extension
+
+```bash
+cd extension
+npm ci && npm run build
+```
+
+## License
+
+MIT

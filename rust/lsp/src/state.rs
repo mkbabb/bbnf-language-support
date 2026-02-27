@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use bbnf::grammar::{BBNFGrammar, Expression, Token};
-use bbnf::analysis::{calculate_acyclic_deps_scc, calculate_non_acyclic_deps_scc, tarjan_scc};
+use bbnf::analysis::{calculate_acyclic_deps_scc, calculate_non_acyclic_deps_scc, tarjan_scc, compute_first_sets, CharSet};
 use bbnf::generate::{calculate_ast_deps, get_nonterminal_name};
 
 /// Extract the inner value from a TokenExpression (single expression).
@@ -53,6 +53,10 @@ pub struct DocumentInfo {
     pub rule_index: HashMap<String, usize>,
     /// Semantic tokens in document order.
     pub semantic_tokens: Vec<SemanticTokenInfo>,
+    /// FIRST set labels per rule name (formatted for display).
+    pub first_set_labels: HashMap<String, String>,
+    /// Rules that can derive the empty string.
+    pub nullable_rules: HashSet<String>,
 }
 
 /// Stored per-document: raw text + analyzed info.
@@ -123,6 +127,8 @@ pub fn analyze(text: &str) -> DocumentInfo {
                 diagnostics,
                 rule_index,
                 semantic_tokens,
+                first_set_labels: HashMap::new(),
+                nullable_rules: HashSet::new(),
             };
         }
     };
@@ -148,6 +154,8 @@ pub fn analyze(text: &str) -> DocumentInfo {
             diagnostics,
             rule_index,
             semantic_tokens,
+            first_set_labels: HashMap::new(),
+            nullable_rules: HashSet::new(),
         };
     };
 
@@ -182,6 +190,8 @@ pub fn analyze(text: &str) -> DocumentInfo {
             diagnostics,
             rule_index,
             semantic_tokens,
+            first_set_labels: HashMap::new(),
+            nullable_rules: HashSet::new(),
         };
     }
 
@@ -298,6 +308,40 @@ pub fn analyze(text: &str) -> DocumentInfo {
         }
     }
 
+    // FIRST set computation for inlay hints.
+    let first_sets = compute_first_sets(&ast, &deps);
+
+    let mut first_set_labels = HashMap::new();
+    let mut nullable_rules = HashSet::new();
+
+    for (lhs, rhs) in ast.iter() {
+        if let Expression::Nonterminal(Token { value: name, .. }) = lhs {
+            let name_str = name.to_string();
+
+            if let Some(cs) = first_sets.first.get(lhs) {
+                first_set_labels.insert(name_str.clone(), format_charset(cs));
+            }
+
+            if first_sets.nullable.contains(lhs) {
+                nullable_rules.insert(name_str.clone());
+            }
+
+            // Enhanced diagnostic: empty rule body detection.
+            if is_empty_rhs(rhs) {
+                if let Some(&idx) = rule_index.get(name.as_ref()) {
+                    let rule = &rules[idx];
+                    diagnostics.push(Diagnostic {
+                        range: span_to_range(text, rule.name_span.0, rule.name_span.1),
+                        severity: Some(DiagnosticSeverity::WARNING),
+                        source: Some("bbnf".into()),
+                        message: format!("Rule `{}` has an empty body", name),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+    }
+
     // Sort semantic tokens by offset for encoding.
     semantic_tokens.sort_by_key(|t| t.span.0);
 
@@ -306,7 +350,61 @@ pub fn analyze(text: &str) -> DocumentInfo {
         diagnostics,
         rule_index,
         semantic_tokens,
+        first_set_labels,
+        nullable_rules,
     }
+}
+
+/// Format a CharSet as a human-readable string for inlay hints.
+fn format_charset(cs: &CharSet) -> String {
+    if cs.is_empty() {
+        return "{}".into();
+    }
+
+    let chars: Vec<u8> = cs.iter().collect();
+
+    // Try to detect ranges.
+    let mut parts: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let start = chars[i];
+        let mut end = start;
+        while i + 1 < chars.len() && chars[i + 1] == end + 1 {
+            end = chars[i + 1];
+            i += 1;
+        }
+        if end - start >= 2 {
+            parts.push(format!("'{}'..'{}'", start as char, end as char));
+        } else if end > start {
+            parts.push(format!("'{}'", start as char));
+            parts.push(format!("'{}'", end as char));
+        } else {
+            parts.push(format!("'{}'", start as char));
+        }
+        i += 1;
+    }
+
+    // Truncate if too many parts.
+    if parts.len() > 6 {
+        let truncated: Vec<&str> = parts.iter().take(5).map(|s| s.as_str()).collect();
+        format!("{{{}, ...}}", truncated.join(", "))
+    } else {
+        format!("{{{}}}", parts.join(", "))
+    }
+}
+
+/// Check if a rule RHS is effectively empty (epsilon only).
+fn is_empty_rhs(expr: &Expression<'_>) -> bool {
+    match expr {
+        Expression::Epsilon(_) => true,
+        Expression::Rule(rhs, _) => is_empty_rhs(rhs),
+        _ => false,
+    }
+}
+
+/// Public wrapper for `compute_expression_end` (used by selection_range).
+pub fn compute_expression_end_pub(expr: &Expression<'_>) -> Option<usize> {
+    compute_expression_end(expr)
 }
 
 /// Recursively collect nonterminal references from an expression.

@@ -41,14 +41,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: lsp
+          workspaces: rust
 
       - name: Install cross (for cross-compilation)
         if: matrix.cross
         run: cargo install cross
 
       - name: Build LSP binary
-        working-directory: lsp
+        working-directory: rust
         run: |
           if [ "${{ matrix.cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }}
@@ -61,19 +61,23 @@ jobs:
         run: |
           mkdir -p server
           if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
-            cp lsp/target/${{ matrix.target }}/release/bbnf-lsp.exe server/bbnf-lsp.exe
+            cp rust/target/${{ matrix.target }}/release/bbnf-lsp.exe server/bbnf-lsp.exe
           else
-            cp lsp/target/${{ matrix.target }}/release/bbnf-lsp server/bbnf-lsp
+            cp rust/target/${{ matrix.target }}/release/bbnf-lsp server/bbnf-lsp
           fi
         shell: bash
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm ci
+
+      - name: Install extension deps
+        working-directory: extension
+        run: npm ci
 
       - name: Package VSIX
-        run: npx vsce package --target ${{ matrix.vscode-target }} -o bbnf-lang-${{ matrix.vscode-target }}.vsix
+        working-directory: extension
+        run: npx vsce package --target ${{ matrix.vscode-target }} -o ../bbnf-lang-${{ matrix.vscode-target }}.vsix
 
       - uses: actions/upload-artifact@v4
         with:

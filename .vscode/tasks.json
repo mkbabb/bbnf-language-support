@@ -1,0 +1,61 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Extension",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "type": "shell",
+            "command": "npm",
+            "args": ["run", "build"],
+            "options": {
+                "cwd": "${workspaceFolder}/extension"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build LSP (Release)",
+            "type": "shell",
+            "command": "cargo",
+            "args": ["build", "--release", "-p", "bbnf-lsp"],
+            "options": {
+                "cwd": "${workspaceFolder}/rust"
+            },
+            "problemMatcher": "$rustc"
+        },
+        {
+            "label": "Build LSP (Debug)",
+            "type": "shell",
+            "command": "cargo",
+            "args": ["build", "-p", "bbnf-lsp"],
+            "options": {
+                "cwd": "${workspaceFolder}/rust"
+            },
+            "problemMatcher": "$rustc"
+        },
+        {
+            "label": "Build All (Debug)",
+            "dependsOn": ["Build LSP (Debug)", "Build Extension"],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "Test LSP",
+            "type": "shell",
+            "command": "cargo",
+            "args": ["test", "--workspace"],
+            "options": {
+                "cwd": "${workspaceFolder}/rust"
+            },
+            "problemMatcher": "$rustc",
+            "group": "test"
+        },
+        {
+            "label": "Test All",
+            "dependsOn": ["Test LSP"],
+            "problemMatcher": []
+        }
+    ]
+}

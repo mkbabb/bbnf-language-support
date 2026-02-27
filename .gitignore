@@ -2,7 +2,9 @@
 node_modules/
 coverage/
 data/
-.vscode/
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
 *.vsix
 rust/target/
 dist/

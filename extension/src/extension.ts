@@ -11,12 +11,20 @@ import {
 let client: LanguageClient | undefined;
 
 function getServerPath(context: ExtensionContext): string {
+    // 1. VS Code setting.
     const config = vscode.workspace.getConfiguration("BBNF");
     const customPath = config.get<string>("server.path");
     if (customPath) {
         return customPath;
     }
 
+    // 2. Environment variable (set by launch.json during development).
+    const envPath = process.env.BBNF_SERVER_PATH;
+    if (envPath) {
+        return envPath;
+    }
+
+    // 3. Bundled binary next to extension.
     const ext = os.platform() === "win32" ? ".exe" : "";
     return path.join(context.extensionPath, "..", "server", `bbnf-lsp${ext}`);
 }

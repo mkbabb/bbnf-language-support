@@ -637,9 +637,75 @@ fn test_inlay_hints() {
     );
     let resp = read_response(&mut stdout, 30);
     eprintln!("Inlay hints response: {}", resp);
+
+    // Should have FIRST sets for both rules.
+    assert!(resp.contains("FIRST"), "Expected FIRST set in inlay hints");
+    // number's FIRST set should contain digits.
     assert!(
-        resp.contains("FIRST"),
-        "Expected FIRST set in inlay hints, got: {}",
+        resp.contains("'0'..'9'"),
+        "Expected digit range in number FIRST set, got: {}",
+        resp
+    );
+    // value's FIRST set should contain digits and 'h' (from "hello").
+    assert!(
+        resp.contains("'h'"),
+        "Expected 'h' in value FIRST set, got: {}",
+        resp
+    );
+    // Should have two hint items (one per rule).
+    assert_eq!(
+        resp.matches("paddingLeft").count(),
+        2,
+        "Expected 2 inlay hints, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_inlay_hints_nullable() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Optional makes value nullable.
+    let grammar = "value = [\"hello\"];";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":30,"method":"textDocument/inlayHint","params":{"textDocument":{"uri":"file:///test.bbnf"},"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":100}}}}"#,
+    );
+    let resp = read_response(&mut stdout, 30);
+    eprintln!("Nullable inlay hints: {}", resp);
+    assert!(
+        resp.contains("nullable"),
+        "Expected nullable indicator for optional rule, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_inlay_hints_empty_range() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    let grammar = "a = \"x\";\nb = \"y\";\nc = \"z\";";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    // Request hints for only line 1 — should return just "b".
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":30,"method":"textDocument/inlayHint","params":{"textDocument":{"uri":"file:///test.bbnf"},"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":100}}}}"#,
+    );
+    let resp = read_response(&mut stdout, 30);
+    eprintln!("Range-limited inlay hints: {}", resp);
+    assert_eq!(
+        resp.matches("paddingLeft").count(),
+        1,
+        "Expected 1 inlay hint for single-line range, got: {}",
         resp
     );
 
@@ -655,6 +721,12 @@ fn test_initialize_new_capabilities() {
     assert!(resp.contains("selectionRangeProvider"), "missing selection range");
     assert!(resp.contains("documentRangeFormattingProvider"), "missing range formatting");
     assert!(resp.contains("documentOnTypeFormattingProvider"), "missing on-type formatting");
+    // Check incremental sync.
+    assert!(
+        resp.contains("textDocumentSync") && resp.contains("2"),
+        "Expected incremental sync (kind 2), got: {}",
+        resp
+    );
 
     shutdown(&mut stdin, &mut stdout, child);
 }
@@ -667,24 +739,51 @@ fn test_selection_range() {
     let grammar = "value = number | \"hello\";\nnumber = /[0-9]+/;";
     let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
 
-    // Request selection range at the "number" reference position (line 0, char 10)
+    // Request selection range at the "number" reference position (line 0, char 10).
     send_lsp(
         &mut stdin,
         r#"{"jsonrpc":"2.0","id":31,"method":"textDocument/selectionRange","params":{"textDocument":{"uri":"file:///test.bbnf"},"positions":[{"line":0,"character":10}]}}"#,
     );
     let resp = read_response(&mut stdout, 31);
     eprintln!("Selection range response: {}", resp);
+
+    // Should have nested parent chain (innermost -> alternation -> full rule).
     assert!(
-        resp.contains("\"id\":31"),
-        "Expected selection range response, got: {}",
+        resp.contains("parent"),
+        "Expected nested parent chain, got: {}",
         resp
     );
-    // Should contain nested ranges (at least one range object).
+    // There should be at least 2 levels (innermost range + parent).
+    let parent_count = resp.matches("parent").count();
     assert!(
-        resp.contains("range"),
-        "Expected range in response, got: {}",
+        parent_count >= 2,
+        "Expected at least 2 parent levels, got {}: {}",
+        parent_count,
         resp
     );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_selection_range_multiple_positions() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    let grammar = "a = \"x\";\nb = \"y\";";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    // Request selection ranges for two positions.
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":31,"method":"textDocument/selectionRange","params":{"textDocument":{"uri":"file:///test.bbnf"},"positions":[{"line":0,"character":1},{"line":1,"character":1}]}}"#,
+    );
+    let resp = read_response(&mut stdout, 31);
+    eprintln!("Multi-pos selection range: {}", resp);
+    // Should return array of 2 results.
+    let result: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let arr = result["result"].as_array().expect("result should be array");
+    assert_eq!(arr.len(), 2, "Expected 2 selection ranges, got {}", arr.len());
 
     shutdown(&mut stdin, &mut stdout, child);
 }
@@ -697,18 +796,47 @@ fn test_range_formatting() {
     let grammar = "number = /[0-9]+/ ;\nvalue = number | \"hello\" ;";
     let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
 
-    // Format only the first line
+    // Format only the first line.
     send_lsp(
         &mut stdin,
         r#"{"jsonrpc":"2.0","id":32,"method":"textDocument/rangeFormatting","params":{"textDocument":{"uri":"file:///test.bbnf"},"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":100}},"options":{"tabSize":4,"insertSpaces":true}}}"#,
     );
     let resp = read_response(&mut stdout, 32);
     eprintln!("Range formatting response: {}", resp);
+
+    // Should produce exactly one edit for the first rule.
+    let result: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let edits = result["result"].as_array().expect("result should be array");
+    assert_eq!(edits.len(), 1, "Expected 1 edit (first rule only)");
+    // The edit should contain the formatted version.
+    let new_text = edits[0]["newText"].as_str().unwrap();
     assert!(
-        resp.contains("\"id\":32"),
-        "Expected range formatting response, got: {}",
-        resp
+        new_text.contains("number = /[0-9]+/;"),
+        "Expected formatted rule text, got: {}",
+        new_text
     );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_range_formatting_no_overlap() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    let grammar = "a = \"x\";\nb = \"y\";\nc = \"z\";";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    // Format a range covering only the middle rule (line 1).
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":32,"method":"textDocument/rangeFormatting","params":{"textDocument":{"uri":"file:///test.bbnf"},"range":{"start":{"line":1,"character":0},"end":{"line":1,"character":100}},"options":{"tabSize":4,"insertSpaces":true}}}"#,
+    );
+    let resp = read_response(&mut stdout, 32);
+    eprintln!("Range formatting (middle rule): {}", resp);
+    let result: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let edits = result["result"].as_array().expect("result should be array");
+    assert_eq!(edits.len(), 1, "Expected 1 edit for middle rule only");
 
     shutdown(&mut stdin, &mut stdout, child);
 }
@@ -721,17 +849,17 @@ fn test_on_type_formatting() {
     let grammar = "number = /[0-9]+/ ;";
     let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
 
-    // Trigger on-type formatting after typing ';'
+    // Trigger on-type formatting after typing ';'.
     send_lsp(
         &mut stdin,
         r#"{"jsonrpc":"2.0","id":33,"method":"textDocument/onTypeFormatting","params":{"textDocument":{"uri":"file:///test.bbnf"},"position":{"line":0,"character":19},"ch":";","options":{"tabSize":4,"insertSpaces":true}}}"#,
     );
     let resp = read_response(&mut stdout, 33);
     eprintln!("On-type formatting response: {}", resp);
+    // Should return edits or null (both valid).
     assert!(
         resp.contains("\"id\":33"),
-        "Expected on-type formatting response, got: {}",
-        resp
+        "Expected on-type formatting response"
     );
 
     shutdown(&mut stdin, &mut stdout, child);
@@ -742,18 +870,175 @@ fn test_incremental_change() {
     let (mut stdin, mut stdout, child) = start_server();
     initialize(&mut stdin, &mut stdout);
 
-    // Start with valid grammar
+    // Start with valid grammar.
     let grammar = "number = /[0-9]+/;";
     let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
 
-    // Send an incremental change: insert "value = number;\n" at the beginning
+    // Send an incremental change: insert "value = number;\n" at the beginning.
     let change = r#"{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///test.bbnf","version":2},"contentChanges":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"text":"value = number;\n"}]}}"#;
     send_lsp(&mut stdin, change);
     let diag = read_until_contains(&mut stdout, "publishDiagnostics");
     eprintln!("Incremental change diagnostics: {}", diag);
 
-    // Should now see the "number" reference resolved (no undefined error).
-    // value references number, number is defined — all good.
+    // After inserting "value = number;\n", both rules should be defined and all refs resolved.
+    // No errors, no warnings.
+    assert!(
+        !diag.contains("\"severity\":1"),
+        "Expected no errors after incremental insert, got: {}",
+        diag
+    );
+    assert!(
+        !diag.contains("Undefined"),
+        "Expected no undefined rule diagnostics, got: {}",
+        diag
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_incremental_change_delete() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Start with two rules: value references number.
+    let grammar = "value = number;\nnumber = /[0-9]+/;";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    // Delete the second line (number rule) via incremental change.
+    let change = r#"{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///test.bbnf","version":2},"contentChanges":[{"range":{"start":{"line":0,"character":15},"end":{"line":1,"character":18}},"text":""}]}}"#;
+    send_lsp(&mut stdin, change);
+    let diag = read_until_contains(&mut stdout, "publishDiagnostics");
+    eprintln!("After delete diagnostics: {}", diag);
+
+    // Now "number" is undefined — should produce a warning.
+    assert!(
+        diag.contains("Undefined") || diag.contains("undefined") || diag.contains("number"),
+        "Expected undefined rule diagnostic after deleting definition, got: {}",
+        diag
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_incremental_change_replace() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    let grammar = "value = \"hello\";";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    // Replace "hello" with "world" via incremental change.
+    let change = r#"{"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///test.bbnf","version":2},"contentChanges":[{"range":{"start":{"line":0,"character":9},"end":{"line":0,"character":14}},"text":"world"}]}}"#;
+    send_lsp(&mut stdin, change);
+    let diag = read_until_contains(&mut stdout, "publishDiagnostics");
+    eprintln!("After replace diagnostics: {}", diag);
+
+    // Should still be valid (no errors).
+    assert!(
+        !diag.contains("\"severity\":1"),
+        "Expected no errors after text replacement, got: {}",
+        diag
+    );
+
+    // Verify the change took effect by hovering on "value".
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":50,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///test.bbnf"},"position":{"line":0,"character":2}}}"#,
+    );
+    let resp = read_response(&mut stdout, 50);
+    eprintln!("Hover after replace: {}", resp);
+    assert!(
+        resp.contains("world"),
+        "Expected 'world' in hover after replace, got: {}",
+        resp
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_formatting_produces_valid_output() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // Grammar with irregular whitespace.
+    let grammar = "a =    \"x\" ;\nb  =  \"y\"  |  \"z\" ;";
+    let _diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":40,"method":"textDocument/formatting","params":{"textDocument":{"uri":"file:///test.bbnf"},"options":{"tabSize":4,"insertSpaces":true}}}"#,
+    );
+    let resp = read_response(&mut stdout, 40);
+    let result: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let edits = result["result"].as_array().expect("should have edits");
+    assert!(!edits.is_empty(), "Expected at least one edit");
+    let new_text = edits[0]["newText"].as_str().unwrap();
+    eprintln!("Formatted text:\n{}", new_text);
+
+    // Formatted output should have consistent spacing.
+    assert!(new_text.contains("a = \"x\";"), "Expected normalized rule a");
+    assert!(
+        new_text.contains("b = \"y\" | \"z\";"),
+        "Expected normalized alternation, got: {}",
+        new_text
+    );
+
+    shutdown(&mut stdin, &mut stdout, child);
+}
+
+#[test]
+fn test_large_grammar() {
+    let (mut stdin, mut stdout, child) = start_server();
+    initialize(&mut stdin, &mut stdout);
+
+    // A realistic grammar with many rules.
+    let grammar = r#"null = "null";
+bool = "true" | "false";
+number = /[0-9]+/;
+string = /[a-zA-Z]+/;
+array = "[" , [ value , { "," , value } ] , "]";
+pair = string , ":" , value;
+object = "{" , [ pair , { "," , pair } ] , "}";
+value = string | number | object | array | bool | null;"#;
+
+    let diag = open_doc_and_wait_diagnostics(&mut stdin, &mut stdout, "file:///test.bbnf", grammar);
+    assert!(!diag.contains("\"severity\":1"), "No errors in valid grammar");
+
+    // Test all features work together on this grammar.
+
+    // Hover on "value" (last rule).
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":41,"method":"textDocument/hover","params":{"textDocument":{"uri":"file:///test.bbnf"},"position":{"line":7,"character":2}}}"#,
+    );
+    let resp = read_response(&mut stdout, 41);
+    assert!(resp.contains("value"), "Hover should show value rule");
+
+    // Inlay hints — should have FIRST sets for all 8 rules.
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":42,"method":"textDocument/inlayHint","params":{"textDocument":{"uri":"file:///test.bbnf"},"range":{"start":{"line":0,"character":0},"end":{"line":7,"character":100}}}}"#,
+    );
+    let resp = read_response(&mut stdout, 42);
+    assert_eq!(
+        resp.matches("FIRST").count(),
+        8,
+        "Expected 8 FIRST set hints (one per rule), got: {}",
+        resp
+    );
+
+    // Document symbols — should have 8.
+    send_lsp(
+        &mut stdin,
+        r#"{"jsonrpc":"2.0","id":43,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"file:///test.bbnf"}}}"#,
+    );
+    let resp = read_response(&mut stdout, 43);
+    let result: serde_json::Value = serde_json::from_str(&resp).unwrap();
+    let symbols = result["result"].as_array().expect("symbols array");
+    assert_eq!(symbols.len(), 8, "Expected 8 document symbols");
 
     shutdown(&mut stdin, &mut stdout, child);
 }

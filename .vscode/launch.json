@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch Extension",
+            "type": "extensionHost",
+            "request": "launch",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}/extension"
+            ],
+            "outFiles": [
+                "${workspaceFolder}/extension/dist/**/*.js"
+            ],
+            "preLaunchTask": "Build Extension",
+            "env": {
+                "BBNF_SERVER_PATH": "${workspaceFolder}/server/bbnf-lsp"
+            }
+        },
+        {
+            "name": "Launch Extension (Debug LSP)",
+            "type": "extensionHost",
+            "request": "launch",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}/extension"
+            ],
+            "outFiles": [
+                "${workspaceFolder}/extension/dist/**/*.js"
+            ],
+            "preLaunchTask": "Build All (Debug)",
+            "env": {
+                "BBNF_SERVER_PATH": "${workspaceFolder}/rust/target/debug/bbnf-lsp"
+            }
+        }
+    ]
+}

@@ -38,34 +38,30 @@ Full language support for `.bbnf` files:
 
 ## Build & Test
 
-### Rust
+A `Makefile` automates the most common workflows:
 
 ```bash
-cd rust
-cargo test --workspace    # requires nightly (59 tests)
-cargo build --release -p bbnf-lsp
+make build          # Build release LSP binary + extension
+make test           # Run all Rust and TypeScript tests
+make bench          # Run LSP performance benchmarks
+make install        # Build, package .vsix, and install into VS Code
+make package        # Build and create bbnf-lang.vsix (no install)
 ```
 
-### TypeScript (bbnf-lang library)
+### Manual builds
 
 ```bash
-cd typescript
-npm ci && npm test
-```
+# Rust (requires nightly)
+cd rust && cargo test --workspace && cargo build --release -p bbnf-lsp
 
-### Prettier Plugin
+# TypeScript library
+cd typescript && npm ci && npm test
 
-```bash
-npm ci                # from repo root (workspace install)
-cd typescript && npm run build
-cd ../prettier-plugin-bbnf && npm test
-```
+# Prettier plugin (must build TS library first)
+npm ci && cd typescript && npm run build && cd ../prettier-plugin-bbnf && npm test
 
-### Extension
-
-```bash
-cd extension
-npm ci && npm run build
+# Extension
+cd extension && npm ci && npm run build
 ```
 
 ## Development
@@ -73,18 +69,23 @@ npm ci && npm run build
 ### Quick start
 
 ```bash
-# Build the LSP binary
-cd rust && cargo build -p bbnf-lsp && cd ..
-
-# Copy to server/ (where extension looks by default)
-cp rust/target/debug/bbnf-lsp server/bbnf-lsp
-
-# Build the extension
-cd extension && npm ci && npm run build && cd ..
+make build-lsp-debug   # Fast debug build of the LSP binary
+make build-ext         # Bundle the extension
 ```
 
 Then open this repo in VS Code and press **F5** to launch the Extension Development
 Host with the BBNF extension loaded.
+
+### Testing locally (without F5)
+
+To install the extension into your regular VS Code instance:
+
+```bash
+make install    # Builds everything, packages a .vsix, installs it
+```
+
+Reload VS Code after installation. The extension will use the LSP binary
+bundled in `server/bbnf-lsp`.
 
 ### VS Code launch configurations
 
@@ -159,6 +160,26 @@ Available via **Terminal > Run Task**:
 | Build LSP (Debug) | `cargo build -p bbnf-lsp` |
 | Build All (Debug) | LSP + extension sequentially |
 | Test LSP | `cargo test --workspace` |
+
+## Publishing
+
+Releases are automated via GitHub Actions. The pipeline builds platform-specific
+LSP binaries (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64),
+packages platform-specific `.vsix` files, and publishes to the VS Code Marketplace.
+
+```bash
+# 1. Bump the version (choose one)
+make bump-patch     # 1.0.0 → 1.0.1
+make bump-minor     # 1.0.0 → 1.1.0
+make bump-major     # 1.0.0 → 2.0.0
+
+# 2. Push the tag to trigger the release pipeline
+make release        # git push --follow-tags
+```
+
+**Prerequisites:** The `VSCE_PAT` secret must be configured in the GitHub repo
+settings (Settings > Secrets > Actions). Generate a Personal Access Token at
+https://dev.azure.com with the "Marketplace (Manage)" scope.
 
 ## License
 
